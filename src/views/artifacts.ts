@@ -74,7 +74,7 @@ export function artifactsView(): View {
           h("span", { class: "chev", text: isOpen ? "▾" : "▸" }),
           h("span", { class: "pv-main" },
             h("span", { class: "nm", text: p.name }),
-            h("span", { class: "path", style: "display:block", title: p.path, text: tilde(p.path) }))),
+            h("span", { class: "path block", title: p.path, text: tilde(p.path) }))),
         h("span", { class: "chips" }, ...p.items.map((i) => h("span", { class: "chip", title: `${i.rule_name}: ${tilde(i.path)}`, text: `${i.dir} ${bytes(i.size)}` }))),
         h("span", { class: `pill ${stale ? "warn" : ""}`, title: "Time since any file in the project changed (build folders excluded)", text: p.last_active ? `${idle(p)} d idle` : "unknown" }),
         h("span", { class: "sz", text: bytes(p.total) })));
@@ -105,7 +105,7 @@ export function artifactsView(): View {
         h("button", { class: "x", "aria-label": `Remove ${r}`, text: "×", onclick: () => { roots = roots.filter((x) => x !== r); store.set("ar.roots", roots); render(); } }))),
         h("button", { class: "btn sm", text: "Add folder…", onclick: () => void addFolder() }),
         ...defaults.filter((d) => !roots.includes(d)).slice(0, 4).map((d) => h("button", { class: "link", title: /\/(Desktop|Documents)$/.test(d) ? "macOS asks for permission the first time" : "", text: `+ ${tilde(d)}`, onclick: () => { roots.push(d); store.set("ar.roots", roots); render(); } }))),
-      h("div", { class: "row", style: "margin-top:12px;flex-wrap:wrap" },
+      h("div", { class: "row wrap mt-3" },
         h("button", { class: "btn primary", text: scanning ? "Scanning…" : busy ? "Waiting for the other scan…" : scan ? "Rescan" : "Find build folders", disabled: scanning || busy, onclick: () => void start() }),
         scanning ? h("button", { class: "btn", text: "Stop", onclick: () => void api.cleanupCancel() }) : null,
         h("span", { class: "muted", text: scanning ? `${num(dirs)} folders looked at…` : "Only folders next to a project file (package.json, Cargo.toml, pubspec.yaml, …) are listed." }),
@@ -117,11 +117,11 @@ export function artifactsView(): View {
     const q = query.trim().toLowerCase();
     const list = scan.projects.filter((p) => !q || p.path.toLowerCase().includes(q));
     box.append(h("section", { class: "card sum" },
-      h("div", { class: "row sb", style: "flex-wrap:wrap;gap:12px" },
+      h("div", { class: "row sb wrap gap-3" },
         h("div", {}, h("div", { class: "big" }, bytes(scan.total), h("small", { text: `in ${num(scan.projects.length)} projects` })),
           h("div", { class: "muted", text: `${bytes(staleTotal)} belongs to projects untouched for ${days}+ days` })),
         h("div", { class: "row" },
-          h("label", { class: "muted row", style: "gap:6px" }, "Stale after", daysIn, "days"),
+          h("label", { class: "muted row gap-1" }, "Stale after", daysIn, "days"),
           h("button", { class: "btn", text: "Select stale", onclick: selectStale, disabled: staleTotal === 0 }),
           h("button", { class: "btn", text: "Select none", onclick: () => { selected.clear(); render(); }, disabled: selected.size === 0 })))));
     const search = h("input", { class: "search", type: "search", placeholder: "Filter projects   ⌘F", value: query, "aria-label": "Filter projects" });

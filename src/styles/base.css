@@ -1,0 +1,32 @@
+/* Reset, typography, global behaviour and utilities. No values here: everything comes from tokens. */
+* { box-sizing: border-box; margin: 0; -webkit-tap-highlight-color: transparent; }
+html, body { height: 100%; }
+body {
+  background: var(--bg); color: var(--text);
+  font: var(--fs-md)/1.5 var(--font);
+  -webkit-font-smoothing: antialiased; user-select: none; -webkit-user-select: none; overflow: hidden;
+  font-variant-numeric: tabular-nums;
+}
+button, input, select, textarea { font: inherit; color: inherit; }
+
+/* Controls carry no hover, focus or press styling (deliberate; see README, "Interaction"). */
+:focus, :focus-visible, button:active { outline: none; }
+input, textarea, select { outline: none; box-shadow: none; }
+[hidden] { display: none !important; }
+
+h1, h2, h3 { font-weight: 600; }
+.muted { color: var(--text-2); }
+.tertiary { color: var(--text-3); }
+.small { font-size: var(--fs-sm); }
+
+/* layout utilities */
+.row { display: flex; align-items: center; gap: var(--sp-3); }
+.row.sb { justify-content: space-between; }
+.row.wrap { flex-wrap: wrap; }
+.row.center { justify-content: center; }
+.gap-1 { gap: var(--sp-1); } .gap-2 { gap: var(--sp-2); } .gap-3 { gap: var(--sp-3); }
+.mt-2 { margin-top: var(--sp-2); } .mt-3 { margin-top: var(--sp-3); } .mt-4 { margin-top: var(--sp-4); }
+.block { display: block; }
+.ell { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.offscreen { position: fixed; opacity: 0; pointer-events: none; }
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }

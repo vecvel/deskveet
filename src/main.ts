@@ -1,3 +1,6 @@
+import "./styles/tokens.css";
+import "./styles/base.css";
+import "./styles/components.css";
 import { h } from "./dom";
 import { api } from "./api";
 import { env } from "./fmt";
@@ -81,13 +84,16 @@ document.addEventListener("visibilitychange", () => {
   } else void loop(true);
 });
 
-nav.append(
-  ...TABS.map((t, i) => {
-    const b = h("button", { "data-id": t.id, onclick: () => show(t.id) });
-    b.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[t.id]}</svg>${t.label}<kbd>⌘${i + 1}</kbd>`;
-    return b;
-  }),
-);
+const GROUPS: [string, string[]][] = [["Monitor", ["overview"]], ["Disk", ["storage", "cleanup"]], ["System", ["processes", "settings"]]];
+for (const [label, ids] of GROUPS) {
+  nav.append(h("div", { class: "nav-label", text: label }));
+  for (const id of ids) {
+    const i = TABS.findIndex((t) => t.id === id);
+    const b = h("button", { "data-id": id, title: TABS[i].label, "aria-label": TABS[i].label, onclick: () => show(id) });
+    b.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[id]}</svg><span class="lbl">${TABS[i].label}</span><kbd>⌘${i + 1}</kbd>`;
+    nav.append(b);
+  }
+}
 
 addEventListener("keydown", (e) => {
   if (!e.metaKey && !e.ctrlKey) return;

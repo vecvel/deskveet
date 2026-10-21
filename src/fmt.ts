@@ -40,7 +40,7 @@ export function ago(unixSecs: number): string {
 }
 
 export function date(unixSecs: number): string {
-  if (!unixSecs) return "—";
+  if (!unixSecs) return "-";
   return new Date(unixSecs * 1000).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
 }
 

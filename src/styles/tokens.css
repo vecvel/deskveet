@@ -1,0 +1,47 @@
+/* Design tokens: the single source of truth for colour, type, space, shape and borders.
+   Restyle the app by editing this file. Palette: warm charcoal, parchment text, terracotta accent. */
+:root {
+  /* surfaces */
+  --bg: #262624; --panel: #2f2e2b; --panel2: #3a3935;
+  /* text levels: primary (titles, key values), secondary (body), tertiary (section labels, metadata) */
+  --text: #faf9f5;
+  --text-2: color-mix(in srgb, var(--text) 74%, transparent);
+  --text-3: color-mix(in srgb, var(--text) 54%, transparent);
+  /* the one border token: close to transparent, used for every border and divider */
+  --border-strength: 8%;
+  --border: color-mix(in srgb, var(--text) var(--border-strength), transparent);
+  /* accent and status */
+  --accent: #d97757; --accent-ink: #1f1e1d;
+  --ok: #9bc27f; --warn: #e6b455; --bad: #ee8174; --slate: #8fa8cf; --sand: #d1b07a;
+  /* type */
+  --font: system-ui, -apple-system, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --fs-xs: 11px; --fs-sm: 12px; --fs-md: 13px; --fs-lg: 15px; --fs-xl: 22px; --fs-display: 32px;
+  /* space (4px grid), shape, layout */
+  --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px; --sp-5: 24px;
+  --r: 14px; --r-control: 999px; --r-sm: 8px;
+  --side-w: 188px;
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --bg: #faf9f5; --panel: #ffffff; --panel2: #f0eee6; --text: #1f1e1d;
+    --text-2: color-mix(in srgb, var(--text) 76%, transparent);
+    --text-3: color-mix(in srgb, var(--text) 60%, transparent);
+    --border-strength: 10%;
+    --accent: #b4532f; --accent-ink: #ffffff;
+    --ok: #3f7a37; --warn: #8f5d00; --bad: #b3372b; --slate: #476aa3; --sand: #96723a;
+    color-scheme: light;
+  }
+}
+:root[data-theme="light"] {
+  --bg: #faf9f5; --panel: #ffffff; --panel2: #f0eee6; --text: #1f1e1d;
+  --text-2: color-mix(in srgb, var(--text) 76%, transparent);
+  --text-3: color-mix(in srgb, var(--text) 60%, transparent);
+  --border-strength: 10%;
+  --accent: #b4532f; --accent-ink: #ffffff;
+  --ok: #3f7a37; --warn: #8f5d00; --bad: #b3372b; --slate: #476aa3; --sand: #96723a;
+  color-scheme: light;
+}
+/* medium window: the sidebar becomes an icon rail */
+@media (max-width: 920px) { :root { --side-w: 60px; } }

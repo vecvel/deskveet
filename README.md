@@ -32,6 +32,18 @@ The UI never sends paths for rule-based cleaning, only ids the engine produced. 
 cache rules, booted simulators are never touched, open files and running tools need an explicit tick, and the
 Trash is only erased after a second confirmation. No sudo, ever: rules that need admin show the command instead.
 
+## Design system
+
+All styling lives in `src/styles/`: `tokens.css` (colour, text levels, the single near-transparent border
+token, type, spacing, radii, themes), `base.css` (reset, typography, utilities) and `components.css`.
+Restyle the app by editing `tokens.css`. System font everywhere, a warm charcoal / parchment palette with a
+terracotta accent, light and dark follow macOS (or Settings → Theme). Below 920 px the sidebar becomes an
+icon rail.
+
+**Interaction (a deliberate choice):** controls have no hover, focus-ring or press styling; only functional
+states (selected, disabled, invalid) are shown. Nothing depends on hover. This hurts keyboard users, who get no
+visible focus; if you want it back, add one `:focus-visible` rule to `base.css`.
+
 ## Memory and size
 
 | | |

@@ -89,8 +89,8 @@ export function processesView(): View {
       root.append(head,
         h("div", { class: "toolbar" }, search, seg),
         h("div", { class: "tbl-wrap" },
-          h("table", { class: "tbl" },
-            h("colgroup", {}, h("col"), h("col", { style: "width:88px" }), h("col", { style: "width:84px" }), h("col", { style: "width:66px" }), h("col", { style: "width:176px" })),
+          h("table", { class: "tbl pr" },
+            h("colgroup", {}, h("col"), h("col"), h("col"), h("col"), h("col")),
             h("thead", {}, h("tr", {}, th("name", "Name  ·  PID"), th("user", "User"), th("mem", "RAM", true), th("cpu", "CPU", true), h("th", {}))),
             body)));
       const mk = (label: string, key: "mem" | "cpu") => h("button", { text: label, "aria-pressed": String(sortKey === key), onclick: () => {

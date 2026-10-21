@@ -16,14 +16,14 @@ export async function openUndoLog(onChange?: () => void): Promise<void> {
       const canRestore = e.action === "trash" && e.status === "ok" && !e.restored && !!e.trash_path;
       return h("div", { class: "pv-row" },
         h("div", { class: "pv-main" },
-          h("div", { class: "row", style: "gap:8px" }, h("b", { text: e.label }),
+          h("div", { class: "row gap-2" }, h("b", { text: e.label }),
             h("span", { class: `pill ${e.status === "ok" ? "ok" : "bad"}`, text: e.restored ? "restored" : `${e.action}${e.status === "ok" ? "" : " failed"}` }),
             h("span", { class: "muted", text: e.at.replace("T", " ").replace("Z", " UTC") })),
           e.path ? h("div", { class: "path", title: e.path, text: tilde(e.path) }) : null,
           e.command ? h("code", { class: "cmd", text: e.command.join(" ") }) : null,
           e.error ? h("div", { class: "why bad", text: e.error }) : null),
         h("div", { class: "act2" },
-          h("div", { class: "sz", text: e.bytes ? bytes(e.bytes) : "—" }),
+          h("div", { class: "sz", text: e.bytes ? bytes(e.bytes) : "-" }),
           canRestore ? h("button", { class: "btn sm", text: "Restore", onclick: async () => {
             try { const p = await api.undoRestore(e.id); toast(`Restored to ${tilde(p)}`); onChange?.(); await load(); }
             catch (err) { toast(String(err), true); }

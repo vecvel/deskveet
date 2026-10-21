@@ -61,8 +61,8 @@ export function overviewView(go: (id: string) => void): View {
     g.clearRect(0, 0, w, hgt);
     const css = getComputedStyle(document.documentElement);
     const col = css.getPropertyValue("--accent").trim();
-    const line = css.getPropertyValue("--line").trim();
-    g.strokeStyle = line; g.lineWidth = 1;
+    const ink = css.getPropertyValue("--text").trim();
+    g.globalAlpha = 0.1; g.strokeStyle = ink; g.lineWidth = 1;
     g.beginPath(); g.moveTo(0, hgt - 0.5); g.lineTo(w, hgt - 0.5); g.stroke();
     if (hist.length < 2) return;
     const step = w / (SPARK_N - 1), x0 = w - (hist.length - 1) * step;
@@ -122,13 +122,13 @@ export function overviewView(go: (id: string) => void): View {
       spark = h("canvas", { class: "spark" });
       topMem = h("tbody");
       topCpu = h("tbody");
-      const more = (label: string) => h("button", { class: "link", text: label, onclick: () => go("processes") });
+      const more = (label: string) => h("button", { class: "link arrow", text: label, onclick: () => go("processes") });
       root.append(
         head,
         h("div", { class: "grid" },
           h("section", { class: "card wide" }, h("h2", { text: "Disks" }), disksBox),
-          h("section", { class: "card" }, h("h2", {}, "Memory", h("span", { class: "sp" }), memPill), memBig, memBar, memLegend, h("div", { style: "margin-top:8px" }, memSwap)),
-          h("section", { class: "card" }, h("h2", { text: "CPU" }), cpuBig, spark, cores, h("div", { style: "margin-top:8px" }, cpuLoad)),
+          h("section", { class: "card" }, h("h2", {}, "Memory", h("span", { class: "sp" }), memPill), memBig, memBar, memLegend, h("div", { class: "mt-2" }, memSwap)),
+          h("section", { class: "card" }, h("h2", { text: "CPU" }), cpuBig, spark, cores, h("div", { class: "mt-2" }, cpuLoad)),
           h("section", { class: "card" }, h("h2", {}, "Top by memory", h("span", { class: "sp" }), more("View all")), h("table", { class: "mini" }, topMem)),
           h("section", { class: "card" }, h("h2", {}, "Top by CPU", h("span", { class: "sp" }), more("View all")), h("table", { class: "mini" }, topCpu)),
         ),

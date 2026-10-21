@@ -57,7 +57,7 @@ export async function openPreview(o: PreviewOpts): Promise<void> {
         const row = h("div", { class: "pv-row" + (i.blocked ? " off" : "") });
         row.append(
           h("div", { class: "pv-main" },
-            h("div", { class: "row", style: "gap:8px" }, h("b", { text: i.label }), riskPill(i.risk), h("span", { class: "muted", text: i.rule_name })),
+            h("div", { class: "row gap-2" }, h("b", { text: i.label }), riskPill(i.risk), h("span", { class: "muted", text: i.rule_name })),
             i.path ? h("div", { class: "path", title: i.path, text: tilde(i.path) }) : null,
             h("div", { class: "how" + (i.method === "trash" ? "" : " warnx"), text: methodText(i) }),
             i.blocked ? h("div", { class: "why bad", text: `Skipped: ${i.blocked}` }) : null,
@@ -65,7 +65,7 @@ export async function openPreview(o: PreviewOpts): Promise<void> {
             ...i.confirm.map((c) => h("label", { class: "ack" },
               Object.assign(h("input", { type: "checkbox" }), { onchange: (e: Event) => { (e.target as HTMLInputElement).checked ? acked.add(i.id) : acked.delete(i.id); bar(); } }),
               h("span", { text: c })))),
-          h("div", { class: "sz", text: i.blocked ? "—" : bytes(i.size) }));
+          h("div", { class: "sz", text: i.blocked ? "-" : bytes(i.size) }));
         return row;
       })),
     );
@@ -113,10 +113,10 @@ export async function openPreview(o: PreviewOpts): Promise<void> {
       ...lines,
       h("div", { class: "pv-list short" }, ...r.results.map((x) => h("div", { class: "pv-row" },
         h("div", { class: "pv-main" },
-          h("div", { class: "row", style: "gap:8px" }, h("b", { text: x.label }),
+          h("div", { class: "row gap-2" }, h("b", { text: x.label }),
             h("span", { class: `pill ${x.status === "ok" || x.status === "dry-run" ? "ok" : x.status === "failed" ? "bad" : "warn"}`, text: x.status })),
           x.error ? h("div", { class: "why " + (x.status === "failed" ? "bad" : ""), text: x.error }) : null),
-        h("div", { class: "sz", text: x.status === "ok" || x.status === "dry-run" ? bytes(x.bytes) : "—" })))));
+        h("div", { class: "sz", text: x.status === "ok" || x.status === "dry-run" ? bytes(x.bytes) : "-" })))));
     foot.replaceChildren();
     if (r.trashed_bytes) foot.append(h("button", { class: "btn", text: "Open Trash", onclick: () => void api.openTrash() }));
     foot.append(h("button", { class: "btn primary", text: "Close", onclick: done }));

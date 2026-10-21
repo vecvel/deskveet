@@ -70,7 +70,7 @@ export function storageView(): View {
   async function copy(path: string) {
     try { await navigator.clipboard.writeText(path); toast("Path copied"); }
     catch {
-      const t = h("textarea", { style: "position:fixed;opacity:0" }); t.value = path; document.body.append(t); t.select();
+      const t = h("textarea", { class: "offscreen" }); t.value = path; document.body.append(t); t.select();
       document.execCommand("copy"); t.remove(); toast("Path copied");
     }
   }
@@ -127,7 +127,7 @@ export function storageView(): View {
       const pct = (r.size / total) * 100;
       body.append(h("tr", { class: drill ? "drill" : "", ondblclick: () => drill && void go(r.path) },
         h("td", {},
-          h("div", { class: "row", style: "gap:7px" }, ico(r.kind === "dir" ? icons.folder : r.kind === "file" ? icons.file : icons.stack), name,
+          h("div", { class: "row gap-2" }, ico(r.kind === "dir" ? icons.folder : r.kind === "file" ? icons.file : icons.stack), name,
             r.kind === "dir" ? h("span", { class: "pid", text: `${num(r.files)} files` }) : null),
           r.kind === "dir" || r.kind === "file" ? h("div", { class: "path", title: r.path, text: tilde(r.path) }) : h("div", { class: "path", text: "Too small to list individually" })),
         h("td", { class: "r" }, h("div", { class: "sz", text: `${v} ${u}` }), h("div", { class: "mbar" }, h("i", { style: `width:${Math.max(0.5, pct).toFixed(1)}%` }))),
@@ -136,7 +136,7 @@ export function storageView(): View {
     }
     if (!rows.length) body.append(h("tr", {}, h("td", { colspan: 4, class: "empty", text: filter ? "Nothing matches the filter" : "This folder has nothing above 1 MB" })));
     return h("div", { class: "tbl-wrap" }, h("table", { class: "tbl st" },
-      h("colgroup", {}, h("col"), h("col", { style: "width:112px" }), h("col", { style: "width:112px" }), h("col", { style: "width:152px" })),
+      h("colgroup", {}, h("col"), h("col"), h("col"), h("col")),
       h("thead", {}, h("tr", {}, th("name", "Name"), th("size", "Size", "r"), th("mtime", "Modified", "r"), h("th", {}))), body));
   }
 
@@ -205,7 +205,7 @@ export function storageView(): View {
     return h("section", { class: "card cta" },
       h("h2", { text: "Find out what is using your disk" }),
       h("p", { class: "muted", text: `Deskveet will read file sizes in ${tilde(root) || "your home folder"}. Nothing leaves your Mac and nothing is changed.` }),
-      h("div", { class: "row", style: "justify-content:center;margin-top:14px" },
+      h("div", { class: "row center mt-3" },
         h("button", { class: "btn primary", text: "Scan now", onclick: () => void start(false) }),
         h("button", { class: "btn", text: "Choose another folder…", onclick: () => void choose() })));
   }
