@@ -26,6 +26,7 @@
   /* scrollbars: thin thumb in the text colour, transparent track, shown only while scrolling */
   --scrollbar-size: 6px;
   --scrollbar-thumb: rgba(250, 249, 245, .26);
+  --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M3 4.5 6 7.5 9 4.5' fill='none' stroke='rgba(250,249,245,.6)' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   /* type */
   --font: system-ui, -apple-system, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
   --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
@@ -33,6 +34,9 @@
   /* space (4px grid), shape, layout */
   --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px; --sp-5: 24px;
   --r: 14px; --r-control: 999px; --r-sm: 8px;
+  --r-field: 12px;                         /* multi-line fields, which can't be pills */
+  /* every single-line control (buttons, search, segmented, text fields, selects) is one of two heights */
+  --h-control: 34px; --h-control-sm: 26px;
   --side-w: 188px;
   --dialog-max: calc(100vw - var(--side-w) - 2 * var(--sp-5));
   /* motion */
@@ -50,7 +54,7 @@
     --warn-tint: rgba(143, 93, 0, .12);
     --ok-tint: rgba(63, 122, 55, .12);
     --bad-tint: rgba(179, 55, 43, .09);
-    --scrollbar-thumb: rgba(31, 30, 29, .26);
+    --scrollbar-thumb: rgba(31, 30, 29, .26); --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M3 4.5 6 7.5 9 4.5' fill='none' stroke='rgba(31,30,29,.6)' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
     --accent: #b4532f; --accent-ink: #ffffff;
     --ok: #3f7a37; --warn: #8f5d00; --bad: #b3372b; --slate: #476aa3; --sand: #96723a;
     --tab-overview-ink: #874a36; --tab-storage-ink: #7c6842; --tab-cleanup-ink: #596e4c; --tab-processes-ink: #4f617c; --tab-settings-ink: #56544d; --tab-apps-ink: #7a5656;
@@ -67,7 +71,7 @@
   --warn-tint: rgba(143, 93, 0, .12);
   --ok-tint: rgba(63, 122, 55, .12);
   --bad-tint: rgba(179, 55, 43, .09);
-  --scrollbar-thumb: rgba(31, 30, 29, .26);
+  --scrollbar-thumb: rgba(31, 30, 29, .26); --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M3 4.5 6 7.5 9 4.5' fill='none' stroke='rgba(31,30,29,.6)' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   --accent: #b4532f; --accent-ink: #ffffff;
   --ok: #3f7a37; --warn: #8f5d00; --bad: #b3372b; --slate: #476aa3; --sand: #96723a;
   --tab-overview-ink: #874a36; --tab-storage-ink: #7c6842; --tab-cleanup-ink: #596e4c; --tab-processes-ink: #4f617c; --tab-settings-ink: #56544d; --tab-apps-ink: #7a5656;

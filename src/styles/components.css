@@ -77,15 +77,15 @@ canvas.spark { width: 100%; height: 44px; display: block; margin-top: 8px; }
 
 /* toolbar + table */
 .toolbar { display: flex; gap: var(--sp-3); align-items: center; flex-wrap: wrap; }
-.search { flex: 1; min-width: 180px; background: var(--panel); border: 1px solid var(--border); border-radius: 999px; padding: 6px 14px; user-select: text; -webkit-user-select: text; }
+.search { flex: 1; min-width: 180px; height: var(--h-control); background: var(--panel); border: 1px solid var(--border); border-radius: var(--r-control); padding: 0 14px; user-select: text; -webkit-user-select: text; }
 .search::placeholder { color: var(--text-2); }
-.seg { display: inline-flex; background: var(--panel); border: 1px solid var(--border); border-radius: 999px; padding: 3px; }
-.seg button { border: 0; background: none; padding: 4px 14px; border-radius: 999px; cursor: pointer; color: var(--text-2); font-weight: 560; }
+.seg { display: inline-flex; align-items: stretch; height: var(--h-control); background: var(--panel); border: 1px solid var(--border); border-radius: var(--r-control); padding: 3px; }
+.seg button { border: 0; background: none; padding: 0 14px; border-radius: var(--r-control); cursor: pointer; color: var(--text-2); font-weight: 560; }
 .seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
-.btn { border: 1px solid var(--border); background: transparent; color: var(--text); padding: 6px 14px; border-radius: var(--r-control); cursor: pointer; font-weight: 560; }
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: var(--h-control); border: 1px solid var(--border); background: transparent; color: var(--text); padding: 0 14px; border-radius: var(--r-control); cursor: pointer; font-weight: 560; }
 .btn.primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
 .btn.danger { background: var(--bad); color: var(--accent-ink); border-color: transparent; }
-.btn.sm { padding: 2px 11px; font-size: 12px; }
+.btn.sm { height: var(--h-control-sm); padding: 0 11px; font-size: var(--fs-sm); }
 .btn:disabled { opacity: .4; cursor: not-allowed; }
 
 .tbl-wrap { background: var(--panel); border: 1px solid var(--border); border-radius: var(--r); overflow: hidden; }
@@ -218,7 +218,9 @@ dialog .big { margin: 4px 0 10px; }
 .rule-head .chips { flex: 0 1 38%; justify-content: flex-end; overflow: hidden; max-height: 22px; }
 .chip.root { color: var(--text); display: inline-flex; gap: 6px; align-items: center; }
 .chip .x { background: none; border: 0; color: var(--text-2); cursor: pointer; font-size: 14px; line-height: 1; padding: 0; }
-input.num { width: 64px; background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 3px 6px; text-align: right; user-select: text; -webkit-user-select: text; }
+input.num { width: 76px; height: var(--h-control); background: var(--panel); border: 1px solid var(--border); border-radius: var(--r-control); padding: 0 12px; text-align: right; user-select: text; -webkit-user-select: text; }
+input.num { appearance: textfield; -moz-appearance: textfield; } /* no native stepper arrows; typing is enough */
+input.num::-webkit-inner-spin-button, input.num::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
 .pill:not(.ok):not(.warn):not(.bad)::before { display: none; }
 .row .sp { flex: 1; }
 
@@ -296,7 +298,11 @@ input.switch:checked::after { transform: translateX(14px); background: var(--acc
 .field { display: flex; flex-direction: column; gap: var(--sp-1); min-width: 0; }
 .field .nm { font-weight: 560; font-size: var(--fs-sm); }
 .re-pair { align-items: flex-start; } /* labels of side-by-side fields on one line */
-.field input[type="text"], .field textarea, .field select { background: var(--panel); border: 1px solid var(--border); border-radius: var(--r-sm); padding: 7px 10px; font: inherit; color: var(--text); user-select: text; -webkit-user-select: text; resize: vertical; }
+.field input[type="text"], .field textarea { background: var(--panel); border: 1px solid var(--border); font: inherit; color: var(--text); user-select: text; -webkit-user-select: text; }
+.field input[type="text"] { height: var(--h-control); border-radius: var(--r-control); padding: 0 14px; }
+.field textarea { border-radius: var(--r-field); padding: 8px 14px; resize: vertical; }
+/* selects: the same pill as every other control, with our chevron instead of the native macOS popup look */
+select { appearance: none; -webkit-appearance: none; height: var(--h-control); min-width: 0; background: var(--panel) var(--chevron) no-repeat right 12px center / 12px 12px; border: 1px solid var(--border); border-radius: var(--r-control); padding: 0 34px 0 14px; color: var(--text); cursor: pointer; }
 .field textarea { font-family: var(--mono); font-size: var(--fs-sm); }
 .re-preview { border-top: 1px solid var(--border); padding-top: var(--sp-3); }
 .re-preview p { margin-bottom: var(--sp-2); }

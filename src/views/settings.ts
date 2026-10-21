@@ -132,17 +132,17 @@ export function settingsView(): View {
       seg.append(h("button", { text: t, "aria-pressed": String(filter === k), onclick: () => { filter = k; render(); } }));
     }
     card.append(h("div", { class: "toolbar rules-tools mt-3" }, search, seg,
-      h("button", { class: "btn sm", text: checking ? "Checking\u2026" : "Check again", disabled: checking, onclick: () => void loadRules() })),
+      h("button", { class: "btn", text: checking ? "Checking\u2026" : "Check again", disabled: checking, onclick: () => void loadRules() })),
       h("div", { class: "row gap-2 mt-2" },
-        h("button", { class: "btn sm primary", text: "Add rule", onclick: () => openRuleEditor(emptyDraft(), () => { filter = "custom"; void loadRules(); }) }),
-        h("button", { class: "btn sm", text: "Import\u2026", onclick: async () => {
+        h("button", { class: "btn primary", text: "Add rule", onclick: () => openRuleEditor(emptyDraft(), () => { filter = "custom"; void loadRules(); }) }),
+        h("button", { class: "btn", text: "Import\u2026", onclick: async () => {
           const r = await api.rulesImport().catch((e) => { toast(String(e), true); return null; });
           if (!r) return;
           toast(`Imported ${r.added} rule${r.added === 1 ? "" : "s"}${r.skipped.length ? `, skipped ${r.skipped.length}: ${r.skipped[0]}` : ""}`, r.skipped.length > 0);
           void loadRules();
       void api.backgroundGet().then((b) => { bg = b; render(); }).catch(() => {});
         } }),
-        h("button", { class: "btn sm", text: "Export\u2026", disabled: !customs.length, onclick: async () => {
+        h("button", { class: "btn", text: "Export\u2026", disabled: !customs.length, onclick: async () => {
           const p = await api.rulesExport().catch((e) => { toast(String(e), true); return null; });
           if (p) toast(`Exported to ${tilde(p)}`);
         } })));
@@ -171,7 +171,7 @@ export function settingsView(): View {
           h("div", { class: "muted small", text: "Where Deskveet found each tool's folders: asked the tool, read your shell's variables, or used the default." }))));
     if (!locsOpen) return card;
     card.append(h("div", { class: "toolbar mt-3" }, h("span", { class: "sp" }),
-      h("button", { class: "btn sm", text: checking ? "Looking\u2026" : "Re-detect", disabled: checking, onclick: () => void loadRules(true) })));
+      h("button", { class: "btn", text: checking ? "Looking\u2026" : "Re-detect", disabled: checking, onclick: () => void loadRules(true) })));
     for (const l of locations) {
       card.append(h("div", { class: "rule-row" },
         h("div", { class: "pv-main" },
