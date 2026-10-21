@@ -1,6 +1,7 @@
 import { api, Overview, ProcRow, DiskRow } from "../api";
 import { h } from "../dom";
 import { bytes, bytesParts, env, pct, ram, uptime } from "../fmt";
+import { icons } from "../icons";
 import { header, View } from "./types";
 
 const SPARK_N = 60;
@@ -84,8 +85,7 @@ export function overviewView(go: (id: string) => void): View {
     memBar.innerHTML = seg("c-app", m.app / p) + seg("c-wired", m.wired / p) + seg("c-comp", m.compressed / p);
     memLegend.innerHTML = dot("accent", "App", ram(m.app)) + dot("sand", "Wired", ram(m.wired)) + dot("slate", "Compressed", ram(m.compressed)) + dot("text-3", "Cached", ram(m.cached));
     const lvl = { normal: ["ok", "Normal"], warn: ["warn", "Warning"], critical: ["bad", "Critical"] }[m.pressure];
-    memPill.className = `pill ${lvl[0]}`;
-    memPill.textContent = `Memory pressure: ${lvl[1]}`;
+    memPill.replaceChildren("Memory pressure ", h("b", { class: lvl[0], text: lvl[1] }));
     memSwap.textContent = m.swap_total ? `Swap ${ram(m.swap_used)} of ${ram(m.swap_total)}` : "Swap not in use";
 
     cpuBig.innerHTML = `${o.cpu.overall.toFixed(0)}<small>% · ${o.cpu.cores.length} cores</small>`;
@@ -116,7 +116,7 @@ export function overviewView(go: (id: string) => void): View {
       memBig = h("div", { class: "big", text: "…" });
       memBar = h("div", { class: "bar thick" });
       memLegend = h("div", { class: "legend" });
-      memPill = h("span", { class: "pill" });
+      memPill = h("span", { class: "status" });
       memSwap = h("span", { class: "muted" });
       cpuBig = h("div", { class: "big", text: "…" });
       cpuLoad = h("div", { class: "muted" });
@@ -124,15 +124,19 @@ export function overviewView(go: (id: string) => void): View {
       spark = h("canvas", { class: "spark" });
       topMem = h("tbody");
       topCpu = h("tbody");
-      const more = (label: string) => h("button", { class: "link arrow", text: label, onclick: () => go("processes") });
+      const more = (label: string) => {
+        const b = h("button", { class: "icon-btn", title: label, "aria-label": label, onclick: () => go("processes") });
+        b.innerHTML = icons.chevron;
+        return b;
+      };
       root.append(
         head,
         h("div", { class: "grid" },
           h("section", { class: "card wide" }, h("h2", { text: "Disks" }), disksBox),
           h("section", { class: "card" }, h("h2", {}, "Memory", h("span", { class: "sp" }), memPill), memBig, memBar, memLegend, h("div", { class: "mt-2" }, memSwap)),
           h("section", { class: "card" }, h("h2", { text: "CPU" }), cpuBig, spark, cores, h("div", { class: "mt-2" }, cpuLoad)),
-          h("section", { class: "card" }, h("h2", {}, "Top by memory", h("span", { class: "sp" }), more("View all")), h("table", { class: "mini" }, topMem)),
-          h("section", { class: "card" }, h("h2", {}, "Top by CPU", h("span", { class: "sp" }), more("View all")), h("table", { class: "mini" }, topCpu)),
+          h("section", { class: "card" }, h("h2", {}, "Top by memory", h("span", { class: "sp" }), more("View all processes by memory")), h("table", { class: "mini" }, topMem)),
+          h("section", { class: "card" }, h("h2", {}, "Top by CPU", h("span", { class: "sp" }), more("View all processes by CPU")), h("table", { class: "mini" }, topCpu)),
         ),
       );
     },
