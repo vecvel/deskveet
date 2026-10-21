@@ -2,7 +2,9 @@
 //! tested with a fake and unit tests can never touch the real Trash or run real tools.
 
 use crate::fsutil;
+use std::collections::HashMap;
 use std::io::{self, Read};
+use std::sync::OnceLock;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
@@ -28,6 +30,14 @@ pub trait Sys: Send + Sync {
     fn trash(&self, path: &Path) -> io::Result<Option<PathBuf>>;
     fn free_bytes(&self, path: &Path) -> u64 {
         fsutil::free_bytes(path)
+    }
+    /// Environment to resolve tool locations with.
+    fn env(&self) -> HashMap<String, String> {
+        std::env::vars().collect()
+    }
+    /// A quick read-only question to a tool (`go env GOCACHE`). `None` when it is missing or fails.
+    fn query(&self, argv: &[String]) -> Option<String> {
+        self.capture(argv).ok()
     }
 }
 
@@ -104,25 +114,118 @@ fn tail(s: &str, n: usize) -> String {
 
 pub struct RealSys {
     home: PathBuf,
+    login_env: OnceLock<HashMap<String, String>>,
+}
+
+/// The user's login shell from the password database (not always zsh).
+fn login_shell() -> String {
+    let mut buf = [0 as libc::c_char; 1024];
+    let mut pwd: libc::passwd = unsafe { std::mem::zeroed() };
+    let mut res: *mut libc::passwd = std::ptr::null_mut();
+    // SAFETY: buffers sized as passed; `res` only read on success.
+    let rc = unsafe { libc::getpwuid_r(libc::getuid(), &mut pwd, buf.as_mut_ptr(), buf.len(), &mut res) };
+    if rc == 0 && !res.is_null() && !pwd.pw_shell.is_null() {
+        let s = unsafe { std::ffi::CStr::from_ptr(pwd.pw_shell) }.to_string_lossy().into_owned();
+        if s.starts_with('/') {
+            return s;
+        }
+    }
+    "/bin/zsh".into()
+}
+
+/// Commands that, on a Mac without Xcode or the Command Line Tools, are stubs that pop up an
+/// "install developer tools" dialog instead of running. They are only run when the tools exist.
+const DEV_TOOL_SHIMS: &[&str] = &["xcrun", "python3", "pip3", "git", "clang", "make", "swift", "xcodebuild"];
+
+fn developer_tools_installed() -> bool {
+    static INSTALLED: OnceLock<bool> = OnceLock::new();
+    *INSTALLED.get_or_init(|| {
+        // `xcode-select -p` only prints the folder; it never shows the install dialog.
+        Command::new("/usr/bin/xcode-select")
+            .arg("-p")
+            .stdin(Stdio::null())
+            .stderr(Stdio::null())
+            .output()
+            .ok()
+            .filter(|o| o.status.success())
+            .map(|o| Path::new(String::from_utf8_lossy(&o.stdout).trim()).is_dir())
+            .unwrap_or(false)
+    })
+}
+
+/// True when running `program` could trigger the developer-tools install dialog.
+pub fn would_prompt_for_dev_tools(program: &str) -> bool {
+    let name = program.rsplit('/').next().unwrap_or(program);
+    DEV_TOOL_SHIMS.contains(&name) && (program == name || program.starts_with("/usr/bin/")) && !developer_tools_installed()
+}
+
+/// Parse `env -0` output. Lines a profile script printed before it are ignored.
+pub fn parse_env0(out: &[u8]) -> HashMap<String, String> {
+    let mut m = HashMap::new();
+    for (i, entry) in out.split(|b| *b == 0).enumerate() {
+        let e = String::from_utf8_lossy(entry);
+        // anything a profile script printed lands before the first key
+        let e = if i == 0 { e.rsplit('\n').next().unwrap_or(&e) } else { &e };
+        if let Some((k, v)) = e.split_once('=') {
+            if !k.is_empty() && k.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') && !k.starts_with(|c: char| c.is_ascii_digit()) {
+                m.insert(k.to_string(), v.to_string());
+            }
+        }
+    }
+    m
 }
 
 impl RealSys {
     pub fn new(home: PathBuf) -> Self {
-        RealSys { home }
+        RealSys { home, login_env: OnceLock::new() }
+    }
+
+    /// Environment of a fresh login shell, read once (apps from the Dock don't inherit shell variables).
+    fn login(&self) -> &HashMap<String, String> {
+        self.login_env.get_or_init(|| {
+            let mut c = Command::new(login_shell());
+            c.args(["-l", "-c", "env -0"]).current_dir(&self.home);
+            exec(c, Duration::from_secs(5)).ok().filter(|o| o.ok).map(|o| parse_env0(o.stdout.as_bytes())).unwrap_or_default()
+        })
+    }
+
+    fn path(&self) -> String {
+        match self.login().get("PATH") {
+            Some(p) if !p.is_empty() => format!("{}:{p}", tool_path(&self.home)),
+            _ => tool_path(&self.home),
+        }
     }
 
     fn command(&self, argv: &[String]) -> Result<Command, String> {
         let (prog, args) = argv.split_first().ok_or("empty command")?;
+        if would_prompt_for_dev_tools(prog) {
+            return Err(format!("{prog} needs Xcode or the Command Line Tools, which are not installed"));
+        }
         let mut c = Command::new(prog);
-        c.args(args).env("PATH", tool_path(&self.home)).current_dir(&self.home);
+        c.args(args).env("PATH", self.path()).current_dir(&self.home);
         Ok(c)
     }
 }
 
 impl Sys for RealSys {
+    fn env(&self) -> HashMap<String, String> {
+        // The app's own variables win; the login shell fills in what the Dock didn't pass on.
+        let mut m = self.login().clone();
+        m.extend(std::env::vars());
+        m
+    }
+
+    fn query(&self, argv: &[String]) -> Option<String> {
+        let o = exec(self.command(argv).ok()?, Duration::from_secs(8)).ok()?;
+        o.ok.then_some(o.stdout)
+    }
+
     fn detect(&self, cmd: &str) -> bool {
+        if cmd.split_whitespace().any(would_prompt_for_dev_tools) {
+            return false;
+        }
         let mut c = Command::new("/bin/sh");
-        c.arg("-c").arg(cmd).env("PATH", tool_path(&self.home)).current_dir(&self.home);
+        c.arg("-c").arg(cmd).env("PATH", self.path()).current_dir(&self.home);
         exec(c, Duration::from_secs(10)).map(|o| o.ok).unwrap_or(false)
     }
 
@@ -198,5 +301,38 @@ impl Sys for RealSys {
             trash::delete(path).map_err(|e| io::Error::other(e.to_string()))?;
             Ok(None)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn env0_parsing_ignores_profile_noise_and_bad_keys() {
+        let out = b"Welcome to zsh!\nHOME=/Users/x\0GRADLE_USER_HOME=/Volumes/Dev/gradle\0weird key=1\0PATH=/a:/b\0MULTI=line1\nline2\0";
+        let m = parse_env0(out);
+        assert_eq!(m.get("HOME").map(String::as_str), Some("/Users/x"));
+        assert_eq!(m.get("GRADLE_USER_HOME").map(String::as_str), Some("/Volumes/Dev/gradle"));
+        assert_eq!(m.get("PATH").map(String::as_str), Some("/a:/b"));
+        assert!(!m.contains_key("weird key"));
+        assert_eq!(m.get("MULTI").map(String::as_str), Some("line1\nline2"));
+    }
+
+    #[test]
+    fn developer_tool_shims_are_recognised() {
+        // On this Mac the tools exist, so nothing is blocked; the classification itself is what matters.
+        let installed = developer_tools_installed();
+        assert_eq!(would_prompt_for_dev_tools("xcrun"), !installed);
+        assert_eq!(would_prompt_for_dev_tools("/usr/bin/python3"), !installed);
+        assert!(!would_prompt_for_dev_tools("/opt/homebrew/bin/python3"), "a real python is never a shim");
+        assert!(!would_prompt_for_dev_tools("brew"));
+    }
+
+    #[test]
+    fn login_shell_environment_is_readable() {
+        let s = RealSys::new(std::env::var_os("HOME").unwrap().into());
+        let env = s.env();
+        assert!(env.contains_key("HOME") && env.contains_key("PATH"));
     }
 }

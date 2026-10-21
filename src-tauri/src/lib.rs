@@ -2,6 +2,7 @@ pub mod apps;
 pub mod cleaner;
 mod commands;
 pub mod fsutil;
+pub mod locate;
 pub mod platform;
 pub mod rules;
 pub mod safety;
@@ -59,6 +60,8 @@ pub fn run() {
             commands::fda_status,
             commands::apps_list,
             commands::rules_list,
+            commands::locations_info,
+            commands::locations_redetect,
             commands::apps_quit,
             commands::ui_get_all,
             commands::ui_set,

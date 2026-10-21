@@ -4,6 +4,7 @@
 //! and every path is re-checked by `Safety` when the plan is built and again right before it is acted on.
 
 use crate::fsutil::{self, Measure};
+use crate::locate::{self, Locations, Resolved};
 use crate::rules::{Kind, Method, Registry, Risk, Rule};
 use crate::safety::{Allowed, ArtifactMatcher, RuleMatcher, Safety};
 use crate::sys::{ProcInfo, Sys};
@@ -72,6 +73,8 @@ pub struct Item {
 #[derive(Serialize, Clone, Debug)]
 pub struct RuleResult {
     pub rule: RuleInfo,
+    /// Where this rule looked on this Mac (only for rules that use `{location}` tokens).
+    pub locations: Vec<Resolved>,
     pub available: bool,
     pub note: Option<String>,
     pub items: Vec<Item>,
@@ -167,6 +170,7 @@ pub struct Engine {
     pub undo: UndoLog,
     /// Folders the user chose for the artifact finder; artifact items are only valid below these.
     art_roots: Mutex<Vec<PathBuf>>,
+    locs: Mutex<Option<Arc<Locations>>>,
     me: u32,
 }
 
@@ -306,7 +310,7 @@ fn random_token() -> String {
 
 impl Engine {
     pub fn new(reg: Registry, home: PathBuf, sys: Arc<dyn Sys>, trash_dir: PathBuf, undo_path: PathBuf) -> Engine {
-        Engine { reg: Arc::new(reg), safety: Safety::new(home), sys, trash_dir, undo: UndoLog::new(undo_path), art_roots: Mutex::new(Vec::new()), me: std::process::id() }
+        Engine { reg: Arc::new(reg), safety: Safety::new(home), sys, trash_dir, undo: UndoLog::new(undo_path), art_roots: Mutex::new(Vec::new()), locs: Mutex::new(None), me: std::process::id() }
     }
 
     pub fn home(&self) -> &Path {
@@ -320,8 +324,42 @@ impl Engine {
         }
     }
 
+    /// Tool locations on this Mac, resolved once (tool query, then environment, then default).
+    pub fn locations(&self) -> Arc<Locations> {
+        let mut g = self.locs.lock().unwrap();
+        if let Some(l) = g.as_ref() {
+            return l.clone();
+        }
+        let env = self.sys.env();
+        let sys = self.sys.clone();
+        let l = Arc::new(locate::resolve(&self.reg.locations, &env, &move |argv: &[String]| sys.query(argv), &self.safety));
+        *g = Some(l.clone());
+        l
+    }
+
+    /// Forget resolved locations (the user moved a tool or changed a variable).
+    pub fn redetect(&self) {
+        *self.locs.lock().unwrap() = None;
+    }
+
+    /// The rule's include and exclude globs with `{location}` tokens and `~` replaced. Patterns whose
+    /// location could not be found are dropped.
+    fn expanded(&self, rule: &Rule) -> (Vec<String>, Vec<String>) {
+        let locs = self.locations();
+        let ex = |v: &[String]| v.iter().filter_map(|p| locate::expand(p, &locs, self.home())).collect();
+        (ex(&rule.paths), ex(&rule.exclude))
+    }
+
+    fn rule_locations(&self, rule: &Rule) -> Vec<Resolved> {
+        let locs = self.locations();
+        let mut ids: Vec<&str> = rule.paths.iter().chain(&rule.exclude).flat_map(|p| locate::tokens(p)).collect();
+        ids.dedup();
+        ids.iter().filter_map(|id| locs.get(*id).cloned()).collect()
+    }
+
     fn matcher(&self, rule: &Rule) -> RuleMatcher {
-        RuleMatcher::new(rule, self.home())
+        let (inc, exc) = self.expanded(rule);
+        RuleMatcher::from_expanded(&inc, &exc)
     }
 
     fn guard(&self, rule: &Rule) -> Guard {
@@ -333,7 +371,8 @@ impl Engine {
     }
 
     fn rule_paths(&self, rule: &Rule) -> Vec<PathBuf> {
-        fsutil::expand(&rule.paths, &rule.exclude, self.home())
+        let (inc, exc) = self.expanded(rule);
+        fsutil::expand(&inc, &exc, self.home())
     }
 
     // ── scanning ──
@@ -359,7 +398,7 @@ impl Engine {
     }
 
     pub fn scan_rule(&self, rule: &Rule, procs: &[ProcInfo]) -> RuleResult {
-        let mut rr = RuleResult { rule: rule.into(), available: true, note: None, items: Vec::new(), total: 0, running: running_matches(procs, &rule.busy, self.me) };
+        let mut rr = RuleResult { rule: rule.into(), locations: self.rule_locations(rule), available: true, note: None, items: Vec::new(), total: 0, running: running_matches(procs, &rule.busy, self.me) };
         if let Some(d) = &rule.detect {
             if !self.sys.detect(d) {
                 rr.available = false;
@@ -601,7 +640,7 @@ impl Engine {
             .zip(per_rule)
             .map(|(r, mut items)| {
                 items.sort_by(|a, b| b.size.cmp(&a.size));
-                RuleResult { rule: (*r).into(), available: true, note: None, total: items.iter().filter(|i| i.blocked.is_none()).map(|i| i.size).sum(), items, running: Vec::new() }
+                RuleResult { rule: (*r).into(), locations: Vec::new(), available: true, note: None, total: items.iter().filter(|i| i.blocked.is_none()).map(|i| i.size).sum(), items, running: Vec::new() }
             })
             .collect();
         let scan = ArtifactScan { roots: roots.iter().map(|r| r.to_string_lossy().into_owned()).collect(), projects, total, dirs: dirs_seen.load(Relaxed) };
@@ -995,6 +1034,7 @@ mod tests {
         fail_tools: Mutex<bool>,
         /// false = behave like a system that cannot report the Trash path (forces the fallback).
         report_dest: Mutex<bool>,
+        env: Mutex<HashMap<String, String>>,
     }
 
     impl Sys for FakeSys {
@@ -1028,6 +1068,9 @@ mod tests {
         fn free_bytes(&self, _: &Path) -> u64 {
             1_000
         }
+        fn env(&self) -> HashMap<String, String> {
+            self.env.lock().unwrap().clone()
+        }
     }
 
     struct Fx {
@@ -1059,6 +1102,7 @@ mod tests {
             tool_log: Mutex::new(vec![]),
             fail_tools: Mutex::new(false),
             report_dest: Mutex::new(true),
+            env: Mutex::new(HashMap::new()),
         });
         let eng = Engine::new(Registry::macos().unwrap(), home.clone(), sys.clone(), trash, t.path().join("undo.json"));
         Fx { _t: t, home, sys, eng }
@@ -1497,5 +1541,50 @@ mod tests {
         assert!(plan.items[0].blocked.as_deref().unwrap().contains("switched off"));
         assert_eq!(run(&f, &plan, &RunOpts::default()).skipped, 1);
         assert!(dd.join("A-1/x").exists());
+    }
+
+    #[test]
+    fn rules_follow_moved_tool_folders_from_env_and_tool_queries() {
+        let f = fx();
+        // Gradle moved with GRADLE_USER_HOME, the Android SDK via ANDROID_HOME, Go's cache via `go env`.
+        let gradle = f.home.join("dev/gradle-home");
+        put(&gradle.join("caches/modules-2/x.jar"), 200_000);
+        let sdk = f.home.join("dev/android-sdk");
+        put(&sdk.join("system-images/android-34/google_apis/img"), 300_000);
+        let gocache = f.home.join("dev/go-cache");
+        put(&gocache.join("ab/cd"), 100_000);
+        put(&f.home.join(".gradle/caches/default-only/y"), 50_000); // the default must now be ignored
+        f.sys.env.lock().unwrap().extend([
+            ("GRADLE_USER_HOME".to_string(), gradle.to_string_lossy().into_owned()),
+            ("ANDROID_HOME".to_string(), sdk.to_string_lossy().into_owned()),
+        ]);
+        f.sys.captures.lock().unwrap().insert("go env GOCACHE".into(), format!("{}\n", gocache.display()));
+
+        let rr = scan(&f, "android.gradle_caches");
+        assert_eq!(rr.items.len(), 1, "{:?}", rr.items.iter().map(|i| &i.path).collect::<Vec<_>>());
+        assert!(rr.items[0].path.as_ref().unwrap().starts_with(gradle.to_str().unwrap()));
+        assert_eq!(rr.locations[0].source, "$GRADLE_USER_HOME");
+        let sys_imgs = scan(&f, "android.system_images");
+        assert_eq!(sys_imgs.items.len(), 1);
+        assert_eq!(sys_imgs.locations[0].source, "$ANDROID_HOME");
+        let go = scan(&f, "go.build_cache");
+        assert!(go.items[0].size >= 100_000, "measured at the tool's location");
+        assert_eq!(go.locations[0].source, "`go env GOCACHE`");
+
+        // and the items can be cleaned: the safety matcher uses the same resolved folders
+        let plan = f.eng.plan(&[rr.clone()], &ids(&rr), &[], false);
+        assert!(plan.items[0].blocked.is_none(), "{:?}", plan.items[0].blocked);
+        assert_eq!(run(&f, &plan, &RunOpts::default()).ok, 1);
+        assert!(!gradle.join("caches/modules-2").exists());
+    }
+
+    #[test]
+    fn a_variable_pointing_at_a_protected_folder_is_ignored_and_reported() {
+        let f = fx();
+        put(&f.home.join("Documents/caches/report/keep.txt"), 10_000);
+        f.sys.env.lock().unwrap().insert("GRADLE_USER_HOME".into(), f.home.join("Documents").to_string_lossy().into_owned());
+        let rr = scan(&f, "android.gradle_caches");
+        assert!(rr.items.is_empty(), "nothing inside Documents is offered");
+        assert!(rr.locations[0].skipped.iter().any(|s| s.contains("$GRADLE_USER_HOME")), "{:?}", rr.locations);
     }
 }

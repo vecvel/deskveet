@@ -52,6 +52,12 @@ impl RuleMatcher {
         RuleMatcher { include: compile(&rule.paths), exclude: compile(&rule.exclude) }
     }
 
+    /// From patterns that are already fully expanded (tokens and `~` replaced).
+    pub fn from_expanded(include: &[String], exclude: &[String]) -> RuleMatcher {
+        let compile = |v: &[String]| v.iter().filter_map(|p| glob::Pattern::new(p).ok()).collect();
+        RuleMatcher { include: compile(include), exclude: compile(exclude) }
+    }
+
     pub fn matches(&self, p: &Path) -> bool {
         let o = glob_opts();
         self.include.iter().any(|g| g.matches_path_with(p, o)) && !self.exclude.iter().any(|g| g.matches_path_with(p, o))
@@ -259,6 +265,29 @@ impl Safety {
         Ok(real)
     }
 
+    /// Why a folder can't be used as a tool location (`None` when it can). A location is the *root* that
+    /// rule globs are applied under, so it must be a real folder below home or on an external volume, and
+    /// never home itself, a protected folder or a system path.
+    pub fn location_problem(&self, p: &Path) -> Option<String> {
+        if !p.is_absolute() || p.components().any(|c| matches!(c, Component::ParentDir)) {
+            return Some("not an absolute path".into());
+        }
+        let Ok(real) = p.canonicalize() else { return Some("does not exist".into()) };
+        if !real.is_dir() {
+            return Some("not a folder".into());
+        }
+        for q in [p, real.as_path()] {
+            if let Some(why) = self.blocked(q, false) {
+                return Some(format!("protected: {why}"));
+            }
+        }
+        let under_volume = real.strip_prefix("/Volumes").map(|r| r.components().count() >= 2).unwrap_or(false);
+        if !(real.starts_with(&self.home) || under_volume) {
+            return Some("outside your home folder".into());
+        }
+        None
+    }
+
     /// Returns the real path that may be acted on.
     pub fn check(&self, path: &Path, allowed: &Allowed) -> Result<PathBuf, Denied> {
         let rule_mode = matches!(allowed, Allowed::Rule(_)); // only glob rules may name /usr/local etc.
@@ -430,10 +459,18 @@ mod tests {
         let h = s.home().to_path_buf();
         let reg = Registry::macos().unwrap();
         let mut checked = 0;
+        let locs = crate::locate::defaults(&reg.locations, s.home());
         for r in reg.rules.iter().filter(|r| matches!(r.kind, crate::rules::Kind::Path | crate::rules::Kind::Dynamic | crate::rules::Kind::Tool)) {
-            let m = RuleMatcher::new(r, s.home());
+            let ex = |v: &[String]| v.iter().filter_map(|p| crate::locate::expand(p, &locs, s.home())).collect::<Vec<_>>();
+            let m = RuleMatcher::from_expanded(&ex(&r.paths), &ex(&r.exclude));
             for p in &r.paths {
-                let concrete = h.join(p.strip_prefix("~/").unwrap_or(p).replace('*', "x"));
+                // default locations, with every wildcard replaced by a concrete name
+                let mut raw = p.clone();
+                for t in crate::locate::tokens(p) {
+                    let d = locs[t].path.as_ref().unwrap();
+                    raw = raw.replace(&format!("{{{t}}}"), &d.to_string_lossy());
+                }
+                let concrete = PathBuf::from(raw.strip_prefix("~/").map(|r| h.join(r).to_string_lossy().into_owned()).unwrap_or(raw).replace('*', "x"));
                 fs::create_dir_all(&concrete).unwrap();
                 let res = s.check(&concrete, &Allowed::Rule(&m));
                 assert!(res.is_ok(), "rule {} path {p}: {res:?}", r.id);

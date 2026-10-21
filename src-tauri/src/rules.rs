@@ -3,7 +3,8 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
-pub const SCHEMA_VERSION: u32 = 1;
+/// Highest schema this build reads. v2 adds `[[location]]` and `{location}` tokens in paths.
+pub const SCHEMA_VERSION: u32 = 2;
 pub const CATEGORIES: &[&str] = &["Developer", "Browsers", "App caches", "System", "Package managers", "Project build artifacts"];
 
 #[derive(Deserialize, Serialize, Clone, Copy, PartialEq, Eq, Debug)]
@@ -73,6 +74,9 @@ impl Rule {
 pub struct Registry {
     pub schema_version: u32,
     pub rules_version: String,
+    /// Folders tools let users move; rules refer to them as `{id}`.
+    #[serde(default, rename = "location")]
+    pub locations: Vec<crate::locate::LocationDef>,
     #[serde(rename = "rule")]
     pub rules: Vec<Rule>,
 }
@@ -91,8 +95,23 @@ impl Registry {
     }
 
     pub fn validate(&self) -> Result<(), String> {
-        if self.schema_version != SCHEMA_VERSION {
-            return Err(format!("unsupported rules schema {} (this build understands {SCHEMA_VERSION})", self.schema_version));
+        if !(1..=SCHEMA_VERSION).contains(&self.schema_version) {
+            return Err(format!("unsupported rules schema {} (this build understands 1 to {SCHEMA_VERSION})", self.schema_version));
+        }
+        let mut loc_ids = HashSet::new();
+        for l in &self.locations {
+            if l.id.is_empty() || !l.id.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_') {
+                return Err(format!("location `{}`: id must be lowercase letters, digits or _", l.id));
+            }
+            if !loc_ids.insert(l.id.as_str()) {
+                return Err(format!("location `{}`: duplicate id", l.id));
+            }
+            if l.default.as_deref().is_some_and(|d| !(d.starts_with("~/") || d.starts_with('/')) || d.contains("..")) {
+                return Err(format!("location `{}`: default must be absolute or start with ~/", l.id));
+            }
+            if l.env.is_empty() && l.cmd.is_none() && l.default.is_none() {
+                return Err(format!("location `{}`: needs env, cmd or default", l.id));
+            }
         }
         let mut seen = HashSet::new();
         for r in &self.rules {
@@ -126,9 +145,14 @@ impl Registry {
                 Kind::Artifact if r.dir_name.as_deref().map_or(true, str::is_empty) => return bad("artifact rule needs dir_name"),
                 _ => {}
             }
-            for p in &r.paths {
-                if !(p.starts_with("~/") || p.starts_with('/')) {
-                    return bad("paths must be absolute or start with ~/");
+            for p in r.paths.iter().chain(&r.exclude) {
+                let toks = crate::locate::tokens(p);
+                if let Some(t) = toks.iter().find(|t| !loc_ids.contains(**t)) {
+                    return bad(&format!("unknown location {{{t}}}"));
+                }
+                let starts_ok = p.starts_with("~/") || p.starts_with('/') || toks.first().is_some_and(|t| p.starts_with(&format!("{{{t}}}")));
+                if !starts_ok {
+                    return bad("paths must be absolute, start with ~/ or with a {location}");
                 }
                 if p.contains("..") {
                     return bad("paths must not contain ..");
@@ -205,9 +229,24 @@ mod tests {
         assert!(Registry::parse(&base("").replace("\"~/x\"", "\"relative/x\"")).is_err());
         assert!(Registry::parse(&base("").replace("\"~/x\"", "\"~/../x\"")).is_err());
         assert!(Registry::parse(&base("").replace("schema_version = 1", "schema_version = 9")).is_err());
+        assert!(Registry::parse(&base("").replace("\"~/x\"", "\"{nowhere}/x\"")).is_err(), "unknown location");
         let one = base("");
         let second = one.split_once("[[rule]]").unwrap().1;
         assert!(Registry::parse(&format!("{one}\n[[rule]]{second}")).is_err(), "duplicate id");
         assert!(Registry::parse(&base("").replace("method = \"trash\"", "method = \"tool\"")).is_err(), "tool without command");
+    }
+
+    #[test]
+    fn schema_two_locations_are_validated() {
+        let doc = |loc: &str, path: &str| format!("schema_version = 2\nrules_version = \"x\"\n{loc}\n[[rule]]\nid = \"a.b\"\nname = \"A\"\ncategory = \"System\"\npaths = [\"{path}\"]\nrisk = \"safe\"\ndescription = \"Deletes the thing for testing.\"\nregenerates = \"yes\"\nmethod = \"trash\"\n");
+        let ok_loc = "[[location]]\nid = \"gradle_home\"\nenv = [\"GRADLE_USER_HOME\"]\ndefault = \"~/.gradle\"";
+        assert!(Registry::parse(&doc(ok_loc, "{gradle_home}/caches/*")).is_ok());
+        assert!(Registry::parse(&doc(ok_loc, "caches/{gradle_home}")).is_err(), "token must start the path");
+        assert!(Registry::parse(&doc("[[location]]\nid = \"Bad-Id\"\ndefault = \"~/x\"", "~/x")).is_err());
+        assert!(Registry::parse(&doc("[[location]]\nid = \"x\"\ndefault = \"relative\"", "~/x")).is_err());
+        assert!(Registry::parse(&doc("[[location]]\nid = \"x\"", "~/x")).is_err(), "needs a source");
+        let reg = Registry::macos().unwrap();
+        assert_eq!(reg.schema_version, 2);
+        assert!(reg.locations.iter().any(|l| l.id == "android_sdk"));
     }
 }

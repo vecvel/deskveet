@@ -23,9 +23,96 @@
 #   opt_in          true = never selected by "clean all safe", needs explicit opt-in
 #   needs_admin     true = Deskveet never runs it, it shows the command instead
 #   stale_days      default age for artifact / project rules
+#
+# Locations (schema 2): folders tools let users move. A rule path may start with `{id}`.
+#   env      variables to try in order; "VAR/sub" means $VAR joined with sub
+#   cmd      a read-only command whose first line of output is the folder (tried first)
+#   default  used when nothing else gives a usable folder
+# Any candidate that is missing, or is home, a protected folder or a system path, is ignored.
 
-schema_version = 1
-rules_version = "2026.10.1"
+schema_version = 2
+rules_version = "2026.10.2"
+
+[[location]]
+id = "derived_data"
+cmd = ["defaults", "read", "com.apple.dt.Xcode", "IDECustomDerivedDataLocation"]
+default = "~/Library/Developer/Xcode/DerivedData"
+
+[[location]]
+id = "xcode_archives"
+cmd = ["defaults", "read", "com.apple.dt.Xcode", "IDECustomDistributionArchivesLocation"]
+default = "~/Library/Developer/Xcode/Archives"
+
+[[location]]
+id = "android_sdk"
+env = ["ANDROID_HOME", "ANDROID_SDK_ROOT"]
+default = "~/Library/Android/sdk"
+
+[[location]]
+id = "android_user"
+env = ["ANDROID_USER_HOME", "ANDROID_SDK_HOME/.android"]
+default = "~/.android"
+
+[[location]]
+id = "android_avd"
+env = ["ANDROID_AVD_HOME", "ANDROID_USER_HOME/avd", "ANDROID_SDK_HOME/.android/avd"]
+default = "~/.android/avd"
+
+[[location]]
+id = "gradle_home"
+env = ["GRADLE_USER_HOME"]
+default = "~/.gradle"
+
+[[location]]
+id = "pub_cache"
+env = ["PUB_CACHE"]
+default = "~/.pub-cache"
+
+[[location]]
+id = "npm_cache"
+cmd = ["npm", "config", "get", "cache"]
+env = ["npm_config_cache", "NPM_CONFIG_CACHE"]
+default = "~/.npm"
+
+[[location]]
+id = "pnpm_store"
+cmd = ["pnpm", "store", "path"]
+env = ["PNPM_STORE_DIR"]
+default = "~/Library/pnpm/store"
+
+[[location]]
+id = "yarn_cache"
+cmd = ["yarn", "cache", "dir"]
+env = ["YARN_CACHE_FOLDER"]
+default = "~/Library/Caches/Yarn"
+
+[[location]]
+id = "cargo_home"
+env = ["CARGO_HOME"]
+default = "~/.cargo"
+
+[[location]]
+id = "go_cache"
+cmd = ["go", "env", "GOCACHE"]
+env = ["GOCACHE"]
+default = "~/Library/Caches/go-build"
+
+[[location]]
+id = "pip_cache"
+cmd = ["python3", "-m", "pip", "cache", "dir"]
+env = ["PIP_CACHE_DIR"]
+default = "~/Library/Caches/pip"
+
+[[location]]
+id = "brew_cache"
+cmd = ["brew", "--cache"]
+env = ["HOMEBREW_CACHE"]
+default = "~/Library/Caches/Homebrew"
+
+[[location]]
+id = "xdg_cache"
+env = ["XDG_CACHE_HOME"]
+default = "~/.cache"
 
 # ───────────────────────────── Developer: Xcode ─────────────────────────────
 
@@ -33,7 +120,7 @@ rules_version = "2026.10.1"
 id = "xcode.derived_data"
 name = "Xcode DerivedData"
 category = "Developer"
-paths = ["~/Library/Developer/Xcode/DerivedData/*"]
+paths = ["{derived_data}/*"]
 risk = "safe"
 description = "Deletes build products and indexes for every project you have built. The next build is a full rebuild and Xcode re-indexes."
 regenerates = "Rebuilt automatically the next time you build or open the project."
@@ -44,7 +131,7 @@ busy = ["Xcode", "xcodebuild", "SourceKitService"]
 id = "xcode.archives"
 name = "Xcode Archives"
 category = "Developer"
-paths = ["~/Library/Developer/Xcode/Archives/*"]
+paths = ["{xcode_archives}/*"]
 risk = "caution"
 description = "Deletes archived app builds, including the dSYM files used to symbolicate crash reports for versions you shipped. You will not be able to re-export or symbolicate those builds."
 regenerates = "Not regenerable. Only re-archiving from the same source commit recreates an equivalent archive."
@@ -150,7 +237,7 @@ busy = ["Simulator"]
 id = "android.avd"
 name = "Android Virtual Devices"
 category = "Developer"
-paths = ["~/.android/avd/*.avd"]
+paths = ["{android_avd}/*.avd"]
 risk = "caution"
 description = "Deletes the virtual device including its apps, accounts and saved snapshots. The matching .ini file is left behind and the device disappears from Android Studio on its next refresh."
 regenerates = "Create a new AVD in Android Studio Device Manager."
@@ -161,7 +248,7 @@ busy = ["qemu-system-aarch64", "qemu-system-x86_64", "emulator"]
 id = "android.system_images"
 name = "Android system images"
 category = "Developer"
-paths = ["~/Library/Android/sdk/system-images/*/*"]
+paths = ["{android_sdk}/system-images/*/*"]
 risk = "review"
 description = "Deletes downloaded emulator system images (1–3 GB each). AVDs that use an image stop booting."
 regenerates = "Re-download with the SDK Manager."
@@ -172,7 +259,7 @@ busy = ["qemu-system-aarch64", "qemu-system-x86_64", "emulator"]
 id = "android.emulator"
 name = "Android emulator binaries"
 category = "Developer"
-paths = ["~/Library/Android/sdk/emulator"]
+paths = ["{android_sdk}/emulator"]
 risk = "review"
 description = "Deletes the Android emulator itself. You cannot start AVDs until it is reinstalled."
 regenerates = "Re-install 'Android Emulator' from the SDK Manager."
@@ -183,7 +270,7 @@ busy = ["qemu-system-aarch64", "qemu-system-x86_64", "emulator", "Android Studio
 id = "android.gradle_caches"
 name = "Gradle caches"
 category = "Developer"
-paths = ["~/.gradle/caches/*"]
+paths = ["{gradle_home}/caches/*"]
 risk = "safe"
 description = "Deletes downloaded dependencies and build caches. The next Gradle build downloads dependencies again, so it needs network access."
 regenerates = "Re-downloaded on the next build."
@@ -194,7 +281,7 @@ busy = ["GradleDaemon", "Android Studio", "java"]
 id = "android.gradle_wrappers"
 name = "Gradle wrapper distributions"
 category = "Developer"
-paths = ["~/.gradle/wrapper/dists/*"]
+paths = ["{gradle_home}/wrapper/dists/*"]
 risk = "review"
 description = "Deletes downloaded Gradle versions. Each project re-downloads the version it needs the next time it builds."
 regenerates = "Downloaded by ./gradlew on demand."
@@ -205,7 +292,7 @@ busy = ["GradleDaemon", "Android Studio"]
 id = "android.sdk_cache"
 name = "Android SDK cache"
 category = "Developer"
-paths = ["~/.android/cache/*", "~/.android/build-cache/*"]
+paths = ["{android_user}/cache/*", "{android_user}/build-cache/*"]
 risk = "safe"
 description = "Deletes the SDK download cache and the legacy build cache."
 regenerates = "Rebuilt on demand."
@@ -217,7 +304,7 @@ method = "trash"
 id = "flutter.pub_cache"
 name = "Dart pub cache"
 category = "Developer"
-paths = ["~/.pub-cache/hosted/*", "~/.pub-cache/git/*"]
+paths = ["{pub_cache}/hosted/*", "{pub_cache}/git/*"]
 risk = "review"
 description = "Deletes downloaded Dart/Flutter packages. Projects run `flutter pub get` again, which needs network access. Globally activated tools in ~/.pub-cache/bin are kept."
 regenerates = "`flutter pub get` / `dart pub get`."
@@ -230,7 +317,7 @@ busy = ["dart", "flutter"]
 id = "node.npm_cache"
 name = "npm cache"
 category = "Package managers"
-paths = ["~/.npm/_cacache"]
+paths = ["{npm_cache}/_cacache"]
 detect = "command -v npm"
 risk = "safe"
 description = "Deletes the npm download cache. Installs are slower and may need network until it refills."
@@ -243,7 +330,7 @@ busy = ["npm"]
 id = "node.pnpm_store"
 name = "pnpm store"
 category = "Package managers"
-paths = ["~/Library/pnpm/store/*"]
+paths = ["{pnpm_store}"]
 detect = "command -v pnpm"
 risk = "review"
 description = "`pnpm store prune` removes packages no project references. Hard-linked project files stay valid."
@@ -256,7 +343,7 @@ busy = ["pnpm"]
 id = "node.yarn_cache"
 name = "Yarn cache"
 category = "Package managers"
-paths = ["~/Library/Caches/Yarn/*", "~/.yarn/berry/cache/*"]
+paths = ["{yarn_cache}", "~/.yarn/berry/cache"]
 risk = "safe"
 description = "Deletes the Yarn download cache."
 regenerates = "Refilled on the next yarn install."
@@ -267,7 +354,7 @@ busy = ["yarn"]
 id = "rust.cargo_registry"
 name = "Cargo registry cache"
 category = "Package managers"
-paths = ["~/.cargo/registry/cache/*", "~/.cargo/registry/src/*", "~/.cargo/git/checkouts/*", "~/.cargo/git/db/*"]
+paths = ["{cargo_home}/registry/cache/*", "{cargo_home}/registry/src/*", "{cargo_home}/git/checkouts/*", "{cargo_home}/git/db/*"]
 risk = "review"
 description = "Deletes downloaded crate archives and unpacked sources. Cargo downloads them again on the next build, which needs network access (cargo --offline will fail for uncached crates)."
 regenerates = "Re-downloaded by cargo."
@@ -278,7 +365,7 @@ busy = ["cargo", "rustc", "rust-analyzer"]
 id = "go.build_cache"
 name = "Go build cache"
 category = "Package managers"
-paths = ["~/Library/Caches/go-build"]
+paths = ["{go_cache}"]
 detect = "command -v go"
 risk = "safe"
 description = "Deletes compiled package objects. The next build is slower."
@@ -291,7 +378,7 @@ busy = ["go"]
 id = "python.pip_cache"
 name = "pip cache"
 category = "Package managers"
-paths = ["~/Library/Caches/pip"]
+paths = ["{pip_cache}"]
 risk = "safe"
 description = "Deletes downloaded wheels and HTTP responses."
 regenerates = "Refilled on the next pip install."
@@ -302,7 +389,7 @@ busy = ["pip", "pip3"]
 id = "brew.cache"
 name = "Homebrew cache"
 category = "Package managers"
-paths = ["~/Library/Caches/Homebrew/*"]
+paths = ["{brew_cache}/*"]
 detect = "command -v brew"
 risk = "safe"
 description = "`brew cleanup -s` removes old versions and scrubs the download cache."

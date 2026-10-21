@@ -689,3 +689,18 @@ pub fn apps_quit(state: State<'_, AppState>, targets: Vec<QuitTarget>, force: bo
 pub fn rules_list(state: State<'_, AppState>) -> Vec<crate::cleaner::RuleInfo> {
     state.engine.reg.rules.iter().map(Into::into).collect()
 }
+
+/// Where each tool location resolved on this Mac, and from which source.
+#[tauri::command(async)]
+pub fn locations_info(state: State<'_, AppState>) -> Vec<crate::locate::Resolved> {
+    let mut v: Vec<_> = state.engine.locations().values().cloned().collect();
+    v.sort_by(|a, b| a.id.cmp(&b.id));
+    v
+}
+
+/// Look for tool folders again (after the user moved a tool or changed a variable).
+#[tauri::command(async)]
+pub fn locations_redetect(state: State<'_, AppState>) -> Vec<crate::locate::Resolved> {
+    state.engine.redetect();
+    locations_info(state)
+}
