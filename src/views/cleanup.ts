@@ -220,6 +220,8 @@ export function cleanupView(): View {
       root.append(head, box, abox, bar);
       void Promise.all([
         api.listen<RuleResult>("cleanup-rule", (rr) => upsert(rr)),
+        // live updates: a watched folder changed and the rule was measured again
+        api.listen<RuleResult>("rule-updated", (rr) => { if (!scanning && results.some((r) => r.rule.id === rr.rule.id)) upsert(rr); }),
         api.listen<{ cancelled: boolean }>("cleanup-done", async () => { scanning = false; scannedAt = Date.now() / 1000; const st = await api.cleanupState(); if (st.results.length) results = st.results; render(); }),
       ]).then((u) => { unlisten.forEach((f) => f()); unlisten = u; });
       unFda = fda.subscribe(() => { if (tab === "caches") render(); });

@@ -1,4 +1,4 @@
-import { api, About, Draft, Location, RuleInfo, RuleResult, RuleState, RuleStatus, Tracking } from "../api";
+import { api, About, Background, Draft, Location, RuleInfo, RuleResult, RuleState, RuleStatus, Tracking } from "../api";
 import { openPreview } from "../preview";
 import { emptyDraft, openRuleEditor } from "../rule_editor";
 import { openTrack, scheduleText, sparkline, trackSummary } from "../track";
@@ -32,6 +32,7 @@ export function settingsView(): View {
   let filter: "all" | "here" | "missing" | "off" | "custom" = "all";
   let customs: Draft[] = [];
   let tracking: Tracking = { rules: {}, disk_free_pct: 10 };
+  let bg: Background | null = null;
   let checking = false;
 
   async function loadRules(redetect = false) {
@@ -93,6 +94,7 @@ export function settingsView(): View {
           if (!(await confirmDialog({ title: `Delete \u201c${r.name}\u201d?`, body: "The rule is removed. Nothing it matched is touched.", ok: "Delete rule", danger: true }))) return;
           await api.ruleDelete(r.id).catch((er) => toast(String(er), true));
           void loadRules();
+      void api.backgroundGet().then((b) => { bg = b; render(); }).catch(() => {});
         } })));
     } else if (r.paths.length && r.kind === "path") {
       right.append(h("button", { class: "link", text: "Duplicate", title: "Start a custom rule from this one", onclick: (e: Event) => edit(e, { ...emptyDraft(), name: `${r.name} (custom)`, category: r.category === "Project build artifacts" ? "Custom" : r.category, paths: r.paths, exclude: r.exclude, risk: r.risk, description: r.description }) }));
@@ -138,6 +140,7 @@ export function settingsView(): View {
           if (!r) return;
           toast(`Imported ${r.added} rule${r.added === 1 ? "" : "s"}${r.skipped.length ? `, skipped ${r.skipped.length}: ${r.skipped[0]}` : ""}`, r.skipped.length > 0);
           void loadRules();
+      void api.backgroundGet().then((b) => { bg = b; render(); }).catch(() => {});
         } }),
         h("button", { class: "btn sm", text: "Export\u2026", disabled: !customs.length, onclick: async () => {
           const p = await api.rulesExport().catch((e) => { toast(String(e), true); return null; });
@@ -180,6 +183,16 @@ export function settingsView(): View {
     return card;
   }
 
+  function bgSwitch(label: string, on: boolean, set: (on: boolean) => Promise<Background>) {
+    const sw = h("input", { type: "checkbox", class: "switch", role: "switch", "aria-label": label });
+    sw.checked = on;
+    sw.addEventListener("change", async () => {
+      try { bg = await set(sw.checked); } catch (e) { toast(String(e), true); }
+      render();
+    });
+    return sw;
+  }
+
   function render() {
     const theme = store.get<Theme>("theme", "system");
     const rel = releaseSeconds();
@@ -191,6 +204,12 @@ export function settingsView(): View {
           group<number>("Release delay", "release", rel, [[30, "30 s"], [60, "1 min"], [300, "5 min"], [0, "Never"]], () => {}))),
       rulesCard(),
       locationsCard(),
+      h("section", { class: "card" }, h("h2", { text: "Background" }),
+        row("Keep Deskveet in the menu bar", "Free space, memory and the next scheduled clean in the menu bar, with \u201cClean safe caches now\u201d. Closing the window also hides the Dock icon. Alerts and schedules keep working either way while Deskveet runs.",
+          bgSwitch("Menu bar", !!bg?.menubar, (on) => api.backgroundSet({ menubar: on }))),
+        row("Open at login", bg?.login_needs_approval ? "Waiting for your approval in System Settings \u2192 General \u2192 Login Items." : "Starts Deskveet in the background when you log in, so schedules and alerts run without opening it.",
+          bgSwitch("Open at login", !!bg?.login, (on) => api.backgroundSet({ login: on }))),
+        ...(bg ? [h("p", { class: "tertiary small mt-2", text: `Watching the folders of ${bg.watched_rules} rules for changes: sizes update within seconds while this window is open and at most every 10 minutes in the background.` })] : [])),
       h("section", { class: "card" }, h("h2", { text: "Alerts" }),
         row("Disk almost full", "A notification when your start-up disk has less free space than this. At most one a day.",
           group<number>("Disk alert", "disk-alert-ui", Math.round(tracking.disk_free_pct ?? 0), [[0, "Off"], [5, "5%"], [10, "10%"], [15, "15%"], [20, "20%"]], (v) => { tracking.disk_free_pct = v || null; void api.diskAlertSet(v || null); })),
@@ -214,6 +233,7 @@ export function settingsView(): View {
       render();
       void api.about().then((a) => { about = a; render(); }).catch(() => {});
       void loadRules();
+      void api.backgroundGet().then((b) => { bg = b; render(); }).catch(() => {});
     },
   };
 }

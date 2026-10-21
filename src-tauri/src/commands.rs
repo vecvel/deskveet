@@ -31,13 +31,13 @@ pub struct AppState {
     pub mon: Mutex<Monitor>,
     loaded: Mutex<Option<Arc<Loaded>>>,
     running: Mutex<Option<Arc<Running>>>,
-    engine: Arc<Engine>,
+    pub engine: Arc<Engine>,
     results: Mutex<Arc<Vec<RuleResult>>>,
     art_results: Mutex<Arc<Vec<RuleResult>>>,
     art_scan: Mutex<Option<ArtifactScan>>,
     plans: Mutex<VecDeque<(String, Arc<Plan>)>>,
     /// A cleanup scan or run is in progress.
-    cleaning: AtomicBool,
+    pub cleaning: AtomicBool,
     clean_cancel: Arc<AtomicBool>,
     /// Small UI preferences (last tab, folders, view modes). Kept here, not in the webview, so they
     /// survive the window being released and recreated.
@@ -46,6 +46,11 @@ pub struct AppState {
     app_sizes: Arc<crate::apps::SizeCache>,
     pub history: Arc<crate::history::History>,
     pub tracking: Arc<crate::schedule::Store>,
+    pub live: Arc<crate::watch::LiveWatch>,
+    /// The window is on screen (live updates every few seconds instead of every 10 minutes).
+    pub ui_active: AtomicBool,
+    /// Menu-bar status lines, updated by the tracker while the menu-bar item exists.
+    pub tray_lines: Mutex<Option<(tauri::menu::MenuItem<tauri::Wry>, tauri::menu::MenuItem<tauri::Wry>)>>,
 }
 
 fn ui_path() -> PathBuf {
@@ -83,6 +88,9 @@ impl AppState {
             clean_cancel: Arc::new(AtomicBool::new(false)),
             history: Arc::new(crate::history::History::load(platform::data_dir().join("history.json"))),
             tracking: Arc::new(crate::schedule::Store::load(platform::data_dir().join("tracking.json"))),
+            live: Arc::new(Default::default()),
+            ui_active: AtomicBool::new(true),
+            tray_lines: Mutex::new(None),
             app_icons: Mutex::new(Default::default()),
             app_sizes: Arc::new(Default::default()),
             ui: Mutex::new(std::fs::read(ui_path()).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default()),
@@ -94,8 +102,19 @@ impl AppState {
         self.ui.lock().unwrap().get("rules.disabled").and_then(|v| v.as_array()).map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect()).unwrap_or_default()
     }
 
+    pub fn ui_get(&self, key: &str) -> Option<serde_json::Value> {
+        self.ui.lock().unwrap().get(key).cloned()
+    }
+
+    /// Watch the folders of every enabled rule again (rules, locations or switches changed).
+    pub fn refresh_watch(&self) {
+        let ignore = vec![platform::data_dir(), platform::cache_dir()];
+        self.live.rebuild(&self.engine, &self.disabled_rules(), ignore);
+    }
+
     /// Drop everything that can be rebuilt; called when the window (and its webview) goes away.
     pub fn release_memory(&self) {
+        self.ui_active.store(false, Relaxed);
         if let Ok(mut m) = self.mon.lock() {
             m.release();
         }
@@ -569,6 +588,7 @@ pub fn ui_set(state: State<'_, AppState>, key: String, value: serde_json::Value)
         return;
     }
     let mut ui = state.ui.lock().unwrap();
+    let rules_changed = key == "rules.disabled";
     ui.insert(key, value);
     let path = ui_path();
     if let Some(d) = path.parent() {
@@ -577,6 +597,10 @@ pub fn ui_set(state: State<'_, AppState>, key: String, value: serde_json::Value)
     let tmp = path.with_extension("json.tmp");
     if std::fs::write(&tmp, serde_json::to_vec(&*ui).unwrap_or_default()).is_ok() {
         let _ = std::fs::rename(tmp, path);
+    }
+    drop(ui);
+    if rules_changed {
+        state.refresh_watch();
     }
 }
 
@@ -717,6 +741,7 @@ pub fn locations_info(state: State<'_, AppState>) -> Vec<crate::locate::Resolved
 #[tauri::command(async)]
 pub fn locations_redetect(state: State<'_, AppState>) -> Vec<crate::locate::Resolved> {
     state.engine.redetect();
+    state.refresh_watch();
     locations_info(state)
 }
 
@@ -760,6 +785,7 @@ pub fn rule_save(state: State<'_, AppState>, mut draft: Draft) -> Result<String,
     }
     ur::save(&path, &all).map_err(|e| format!("Could not save the rule: {e}"))?;
     state.engine.set_custom_rules(&all);
+    state.refresh_watch();
     Ok(draft.id)
 }
 
@@ -770,6 +796,7 @@ pub fn rule_delete(state: State<'_, AppState>, id: String) -> Result<(), String>
     all.retain(|d| d.id != id);
     ur::save(&path, &all).map_err(|e| e.to_string())?;
     state.engine.set_custom_rules(&all);
+    state.refresh_watch();
     Ok(())
 }
 
@@ -934,6 +961,7 @@ pub fn start_tracker(app: AppHandle) {
             let st = app.state::<AppState>();
             let now = scan::now_secs();
             run_due_schedules(&app, &st, now);
+            refresh_tray_lines(&st, now);
             if now.saturating_sub(last_alert_check) >= ALERT_EVERY {
                 last_alert_check = now;
                 check_alerts(&st, now);
@@ -1010,4 +1038,142 @@ fn check_alerts(st: &AppState, now: u64) {
         drop(c);
         st.tracking.save();
     }
+}
+
+// ───────────────────────────── live updates and background mode ─────────────────────────────
+
+#[tauri::command(async)]
+pub fn ui_visible(state: State<'_, AppState>, visible: bool) {
+    state.ui_active.store(visible, Relaxed);
+}
+
+/// Re-measure rules whose folders changed: every few seconds while the window is visible, at most every
+/// 10 minutes per rule otherwise. Results go to the open window, the history and the size alerts.
+pub fn start_live(app: AppHandle) {
+    let _ = std::thread::Builder::new().name("live".into()).spawn(move || {
+        platform::background_thread();
+        app.state::<AppState>().refresh_watch();
+        loop {
+            std::thread::sleep(Duration::from_secs(2));
+            let st = app.state::<AppState>();
+            let active = st.ui_active.load(Relaxed);
+            let due = st.live.take_due(if active { Duration::from_secs(5) } else { Duration::from_secs(600) });
+            if due.is_empty() || st.cleaning.load(Relaxed) {
+                continue;
+            }
+            let reg = st.engine.registry();
+            let procs = crate::sys::RealSys::new(st.engine.home().to_path_buf()).processes_light();
+            let now = scan::now_secs();
+            let mut sizes = Vec::new();
+            for id in due {
+                let Some(rule) = reg.get(&id) else { continue };
+                let rr = st.engine.scan_rule(rule, &procs);
+                sizes.push((id.clone(), rr.total));
+                {
+                    let mut res = st.results.lock().unwrap();
+                    if let Some(i) = res.iter().position(|r| r.rule.id == id) {
+                        let mut v = res.as_ref().clone();
+                        v[i] = rr.clone();
+                        *res = Arc::new(v);
+                    }
+                }
+                if active {
+                    let _ = app.emit("rule-updated", &rr);
+                }
+                let limit = st.tracking.cfg.lock().unwrap().alerts.get(&id).copied();
+                if let Some(limit) = limit {
+                    let last = st.tracking.cfg.lock().unwrap().last_alert.get(&id).copied().unwrap_or(0);
+                    if rr.total >= limit && now.saturating_sub(last) >= DAY {
+                        st.mon.lock().unwrap().plat().notify(&format!("{} is {}", rule.name, bytes_h(rr.total)), &format!("That's over the {} alert you set. Open Deskveet to clean it.", bytes_h(limit)));
+                        st.tracking.cfg.lock().unwrap().last_alert.insert(id.clone(), now);
+                        st.tracking.save();
+                    }
+                }
+            }
+            st.history.record(now, &sizes);
+        }
+    });
+}
+
+#[derive(Serialize)]
+pub struct Background {
+    pub menubar: bool,
+    pub login: bool,
+    /// macOS needs the user to approve the login item in System Settings.
+    pub login_needs_approval: bool,
+    pub watched_rules: usize,
+}
+
+fn menubar_on(state: &AppState) -> bool {
+    state.ui.lock().unwrap().get("bg.menubar").and_then(|v| v.as_bool()).unwrap_or(false)
+}
+
+fn login_status() -> (bool, bool) {
+    #[cfg(target_os = "macos")]
+    {
+        use objc2_service_management::{SMAppService, SMAppServiceStatus};
+        // SAFETY: plain property reads on the shared service object.
+        let st = unsafe { SMAppService::mainAppService().status() };
+        (st == SMAppServiceStatus::Enabled || st == SMAppServiceStatus::RequiresApproval, st == SMAppServiceStatus::RequiresApproval)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        (false, false)
+    }
+}
+
+#[tauri::command(async)]
+pub fn background_get(state: State<'_, AppState>) -> Background {
+    let (login, approval) = login_status();
+    Background { menubar: menubar_on(&state), login, login_needs_approval: approval, watched_rules: state.live.watched_rules() }
+}
+
+#[tauri::command]
+pub fn background_set(app: AppHandle, state: State<'_, AppState>, menubar: Option<bool>, login: Option<bool>) -> Result<Background, String> {
+    if let Some(on) = menubar {
+        state.ui.lock().unwrap().insert("bg.menubar".into(), serde_json::Value::Bool(on));
+        if on {
+            crate::tray::show(&app).map_err(|e| e.to_string())?;
+        } else {
+            crate::tray::hide(&app);
+        }
+    }
+    if let Some(on) = login {
+        #[cfg(target_os = "macos")]
+        {
+            use objc2_service_management::SMAppService;
+            // SAFETY: registering the app itself as a login item; errors are surfaced to the user.
+            let r = unsafe { if on { SMAppService::mainAppService().registerAndReturnError() } else { SMAppService::mainAppService().unregisterAndReturnError() } };
+            r.map_err(|e| format!("macOS refused: {}", e.localizedDescription()))?;
+        }
+    }
+    let (login, approval) = login_status();
+    Ok(Background { menubar: menubar_on(&state), login, login_needs_approval: approval, watched_rules: state.live.watched_rules() })
+}
+
+/// Update the menu-bar lines (free space, memory pressure, next scheduled clean).
+pub fn refresh_tray_lines(st: &AppState, now: u64) {
+    let lines = st.tray_lines.lock().unwrap().clone();
+    let Some((status, next)) = lines else { return };
+    let home = st.engine.home().to_path_buf();
+    let free = crate::fsutil::free_bytes(&home);
+    let pressure = st.mon.lock().unwrap().plat().memory_extra().map(|m| format!("{:?}", m.pressure)).unwrap_or_default();
+    let _ = status.set_text(format!("{} free  \u{00b7}  Memory: {}", bytes_h(free), pressure));
+    let cfg = st.tracking.cfg.lock().unwrap().clone();
+    let reg = st.engine.registry();
+    let soonest = cfg
+        .schedules
+        .iter()
+        .map(|(id, s)| {
+            let next = crate::schedule::last_due(s, now) + if s.every == crate::schedule::Every::Daily { DAY } else { 7 * DAY };
+            (next, reg.get(id).map(|r| r.name.clone()).unwrap_or_default())
+        })
+        .min_by_key(|(t, _)| *t);
+    let _ = next.set_text(match soonest {
+        Some((t, name)) => {
+            let l = crate::schedule::local(t);
+            format!("Next clean: {name}, {:02}/{:02} {:02}:00", l.day, l.month, l.hour)
+        }
+        None => "No scheduled cleaning".into(),
+    });
 }

@@ -81,7 +81,9 @@ async function loop(now = false) {
 // After a minute in the background the window is released: the webview and its three WebKit helper
 // processes (~70 MB) go away, the Rust side keeps running. Dock click / Cmd+Tab brings the window back.
 let releaseTimer = 0;
+try { void api.uiVisible(true).catch(() => {}); } catch { /* backend not ready */ }
 document.addEventListener("visibilitychange", () => {
+  try { void api.uiVisible(!document.hidden).catch(() => {}); } catch { /* backend not ready */ }
   clearTimeout(releaseTimer);
   if (document.hidden) {
     clearTimeout(timer);

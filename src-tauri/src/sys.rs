@@ -192,6 +192,11 @@ pub fn parse_env0(out: &[u8]) -> HashMap<String, String> {
 }
 
 impl RealSys {
+    /// Process names only (cheap), for busy checks during live re-measuring.
+    pub fn processes_light(&self) -> Vec<ProcInfo> {
+        self.processes()
+    }
+
     pub fn new(home: PathBuf) -> Self {
         RealSys { home, login_env: OnceLock::new() }
     }
@@ -236,7 +241,7 @@ impl Sys for RealSys {
         {
             use objc2_app_kit::NSWorkspace;
             use objc2_foundation::NSString;
-            Some(NSWorkspace::sharedWorkspace().URLForApplicationWithBundleIdentifier(&NSString::from_str(bundle_id)).is_some())
+            objc2::rc::autoreleasepool(|_| Some(NSWorkspace::sharedWorkspace().URLForApplicationWithBundleIdentifier(&NSString::from_str(bundle_id)).is_some()))
         }
         #[cfg(not(target_os = "macos"))]
         {
@@ -319,12 +324,14 @@ impl Sys for RealSys {
             use objc2_foundation::{NSFileManager, NSString, NSURL};
             // NSFileManager needs no Automation permission (the Finder method would prompt for one).
             let p = path.to_str().ok_or_else(|| io::Error::other("path is not valid UTF-8"))?;
-            let url = NSURL::fileURLWithPath(&NSString::from_str(p));
-            let mut resulting = None;
-            NSFileManager::defaultManager()
-                .trashItemAtURL_resultingItemURL_error(&url, Some(&mut resulting))
-                .map_err(|e| io::Error::other(e.to_string()))?;
-            Ok(resulting.and_then(|u| u.path()).map(|s| PathBuf::from(s.to_string())))
+            objc2::rc::autoreleasepool(|_| {
+                let url = NSURL::fileURLWithPath(&NSString::from_str(p));
+                let mut resulting = None;
+                NSFileManager::defaultManager()
+                    .trashItemAtURL_resultingItemURL_error(&url, Some(&mut resulting))
+                    .map_err(|e| io::Error::other(e.to_string()))?;
+                Ok(resulting.and_then(|u| u.path()).map(|s| PathBuf::from(s.to_string())))
+            })
         }
         #[cfg(not(target_os = "macos"))]
         {

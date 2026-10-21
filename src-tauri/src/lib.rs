@@ -1,6 +1,6 @@
 pub mod apps;
 pub mod cleaner;
-mod commands;
+pub mod commands;
 pub mod fsutil;
 pub mod history;
 pub mod locate;
@@ -11,13 +11,17 @@ pub mod scan;
 pub mod schedule;
 pub mod sys;
 pub mod sysmon;
+pub mod tray;
 pub mod undo;
 pub mod user_rules;
+pub mod watch;
 
 use tauri::{AppHandle, Manager, RunEvent, WebviewWindowBuilder, WindowEvent};
 
 /// Show the main window, rebuilding it from tauri.conf.json when it was released to save memory.
 pub fn show_main(app: &AppHandle) {
+    #[cfg(target_os = "macos")]
+    let _ = app.set_activation_policy(tauri::ActivationPolicy::Regular);
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.unminimize();
         let _ = w.show();
@@ -36,6 +40,11 @@ pub fn run() {
         .manage(commands::AppState::new())
         .setup(|app| {
             commands::start_tracker(app.handle().clone());
+            commands::start_live(app.handle().clone());
+            let on = app.state::<commands::AppState>().ui_get("bg.menubar").and_then(|v| v.as_bool()).unwrap_or(false);
+            if on {
+                let _ = tray::show(app.handle());
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -75,6 +84,9 @@ pub fn run() {
             commands::disk_alert_set,
             commands::schedule_set,
             commands::notify_test,
+            commands::ui_visible,
+            commands::background_get,
+            commands::background_set,
             commands::rule_test,
             commands::rule_save,
             commands::rule_delete,
@@ -90,7 +102,14 @@ pub fn run() {
         // A destroyed window means the WebKit helper processes are gone; drop our caches too.
         .on_window_event(|w, e| {
             if matches!(e, WindowEvent::Destroyed) {
-                w.app_handle().state::<commands::AppState>().release_memory();
+                let app = w.app_handle();
+                let st = app.state::<commands::AppState>();
+                st.release_memory();
+                // In menu-bar mode the Dock icon goes away with the window.
+                #[cfg(target_os = "macos")]
+                if st.ui_get("bg.menubar").and_then(|v| v.as_bool()).unwrap_or(false) {
+                    let _ = app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+                }
             }
         })
         .build(tauri::generate_context!())

@@ -648,6 +648,43 @@ impl Engine {
         Ok(vec![it])
     }
 
+    // ── live updates ──
+
+    /// Folders to watch for a rule: the fixed part of each pattern (before the first wildcard).
+    pub fn watch_roots(&self, rule: &Rule) -> Vec<PathBuf> {
+        if rule.kind == Kind::Artifact || rule.dynamic.as_deref() == Some("trash") || rule.dynamic.as_deref() == Some("simctl_runtimes") {
+            return Vec::new();
+        }
+        let (inc, _) = self.expanded(rule);
+        let mut out: Vec<PathBuf> = inc
+            .iter()
+            .filter_map(|p| {
+                let unescaped = p.replace("[[]", "[").replace("[]]", "]");
+                let fixed: PathBuf = Path::new(&unescaped).components().take_while(|c| !c.as_os_str().to_string_lossy().contains(['*', '?', '['])).collect();
+                let dir = if fixed.is_dir() { fixed } else { fixed.parent()?.to_path_buf() };
+                (dir.is_dir() && dir != self.home()).then_some(dir)
+            })
+            .collect();
+        out.sort();
+        out.dedup();
+        out
+    }
+
+    /// "Clean safe caches now": every safe Trash rule, skipping anything that needs confirmation.
+    pub fn clean_safe_now(&self, disabled: &HashSet<String>) -> Report {
+        let reg = self.registry();
+        let procs = self.sys.processes();
+        let results: Vec<RuleResult> = reg
+            .rules
+            .iter()
+            .filter(|r| r.risk == Risk::Safe && r.method == Method::Trash && !r.opt_in && r.kind == Kind::Path && !disabled.contains(&r.id))
+            .map(|r| self.scan_rule(r, &procs))
+            .collect();
+        let ids: Vec<String> = results.iter().flat_map(|r| r.items.iter().filter(|i| i.blocked.is_none()).map(|i| i.id.clone())).collect();
+        let plan = self.plan_with(&results, &ids, &[], false, disabled);
+        self.run(&plan, &RunOpts { trigger: "menu".into(), ..Default::default() }, &|_, _, _| {})
+    }
+
     // ── scheduled cleaning ──
 
     /// Why a rule can't be scheduled (`None` = it can). Only Trash rules; caution never; review needs consent.
@@ -1873,5 +1910,20 @@ mod tests {
         assert!(f.eng.run_scheduled("system.trash", true, &HashSet::new()).is_err(), "emptying the Trash");
         let off: HashSet<String> = ["xcode.derived_data".to_string()].into();
         assert!(f.eng.run_scheduled("xcode.derived_data", false, &off).is_err(), "switched off");
+    }
+
+    #[test]
+    fn watch_roots_are_the_fixed_folders_and_clean_safe_skips_review_and_busy() {
+        let f = fx();
+        let dd = f.home.join("Library/Developer/Xcode/DerivedData");
+        put(&dd.join("A-1/x"), 100_000);
+        put(&f.home.join("Library/Caches/com.example.app/blob"), 100_000); // review rule: not touched
+        let reg = f.eng.registry();
+        assert_eq!(f.eng.watch_roots(reg.get("xcode.derived_data").unwrap()), vec![dd.clone()]);
+        assert!(f.eng.watch_roots(reg.get("artifact.node_modules").unwrap()).is_empty());
+        let rep = f.eng.clean_safe_now(&HashSet::new());
+        assert!(rep.ok >= 1 && !dd.join("A-1").exists());
+        assert!(f.home.join("Library/Caches/com.example.app/blob").exists(), "review rules are not part of 'safe caches'");
+        assert!(f.eng.undo.list().iter().all(|e| e.trigger == "menu"));
     }
 }

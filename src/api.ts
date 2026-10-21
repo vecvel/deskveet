@@ -47,6 +47,7 @@ export interface RuleInfo {
   regenerates: string; tool: string | null; opt_in: boolean; needs_admin: boolean; custom: boolean;
   paths: string[]; exclude: string[];
 }
+export interface Background { menubar: boolean; login: boolean; login_needs_approval: boolean; watched_rules: number }
 export interface Point { t: number; b: number }
 export interface Schedule { every: "daily" | "weekly"; hour: number; weekday: number; review_ok: boolean; created?: number }
 export interface TrackInfo { points: Point[]; growth_per_day: number | null; last_cleaned: number | null; freed: number; alert: number | null; schedule: Schedule | null; schedule_problem: string | null }
@@ -132,6 +133,9 @@ export const api = {
   diskAlertSet: (pct: number | null) => call<void>("disk_alert_set", { pct }),
   scheduleSet: (ruleId: string, schedule: Schedule | null) => call<void>("schedule_set", { ruleId, schedule }),
   notifyTest: () => call<void>("notify_test"),
+  uiVisible: (visible: boolean) => call<void>("ui_visible", { visible }),
+  backgroundGet: () => call<Background>("background_get"),
+  backgroundSet: (opts: { menubar?: boolean; login?: boolean }) => call<Background>("background_set", opts),
   ruleTest: (draft: Draft) => call<RuleTest>("rule_test", { draft }),
   ruleSave: (draft: Draft) => call<string>("rule_save", { draft }),
   ruleDelete: (id: string) => call<void>("rule_delete", { id }),

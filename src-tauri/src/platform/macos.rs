@@ -281,7 +281,7 @@ impl Platform for Mac {
     fn notify(&self, title: &str, body: &str) {
         // UNUserNotificationCenter only works inside an .app bundle (it raises otherwise, e.g. in tests).
         let in_bundle = std::env::current_exe().ok().is_some_and(|p| p.to_string_lossy().contains(".app/Contents/MacOS/"));
-        if in_bundle && un_notify(title, body) {
+        if in_bundle && objc2::rc::autoreleasepool(|_| un_notify(title, body)) {
             return;
         }
         let esc = |s: &str| s.replace(['"', '\\'], "'");
@@ -314,41 +314,57 @@ impl Platform for Mac {
 // ───────────────────────────── Apps ─────────────────────────────
 
 impl Apps for Mac {
+    // These run on worker threads, which have no autorelease pool: each body runs inside one, otherwise
+    // every call leaks the NSRunningApplication objects and strings AppKit hands back.
     fn running_apps(&self) -> Vec<RunningApp> {
-        use objc2_app_kit::{NSApplicationActivationPolicy, NSWorkspace};
-        let ws = NSWorkspace::sharedWorkspace();
-        let mut out = Vec::new();
-        for app in ws.runningApplications().iter() {
-            if app.activationPolicy() != NSApplicationActivationPolicy::Regular || app.isTerminated() {
-                continue;
+        objc2::rc::autoreleasepool(|_| {
+            use objc2_app_kit::{NSApplicationActivationPolicy, NSWorkspace};
+            let ws = NSWorkspace::sharedWorkspace();
+            let mut out = Vec::new();
+            for app in ws.runningApplications().iter() {
+                if app.activationPolicy() != NSApplicationActivationPolicy::Regular || app.isTerminated() {
+                    continue;
+                }
+                let pid = app.processIdentifier();
+                if pid <= 0 {
+                    continue;
+                }
+                out.push(RunningApp {
+                    pid: pid as u32,
+                    name: app.localizedName().map(|s| s.to_string()).unwrap_or_default(),
+                    bundle_id: app.bundleIdentifier().map(|s| s.to_string()).unwrap_or_default(),
+                    bundle_path: app.bundleURL().and_then(|u| u.path()).map(|p| PathBuf::from(p.to_string())),
+                });
             }
-            let pid = app.processIdentifier();
-            if pid <= 0 {
-                continue;
-            }
-            out.push(RunningApp {
-                pid: pid as u32,
-                name: app.localizedName().map(|s| s.to_string()).unwrap_or_default(),
-                bundle_id: app.bundleIdentifier().map(|s| s.to_string()).unwrap_or_default(),
-                bundle_path: app.bundleURL().and_then(|u| u.path()).map(|p| PathBuf::from(p.to_string())),
-            });
-        }
-        out
+            out
+        })
     }
 
     fn app_icon_png(&self, bundle_path: &Path) -> Option<Vec<u8>> {
-        use objc2::AllocAnyThread;
-        use objc2_app_kit::{NSBitmapImageFileType, NSBitmapImageRep, NSWorkspace};
-        use objc2_foundation::{NSDictionary, NSPoint, NSRect, NSSize, NSString};
-        let ws = NSWorkspace::sharedWorkspace();
-        let icon = ws.iconForFile(&NSString::from_str(bundle_path.to_str()?));
-        let mut rect = NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(64.0, 64.0));
-        // SAFETY: rect is a valid in/out pointer; no context or hints.
-        let cg = unsafe { icon.CGImageForProposedRect_context_hints(&mut rect, None, None) }?;
-        let rep = NSBitmapImageRep::initWithCGImage(NSBitmapImageRep::alloc(), &cg);
-        // SAFETY: empty properties dictionary is valid for PNG.
-        let data = unsafe { rep.representationUsingType_properties(NSBitmapImageFileType::PNG, &NSDictionary::new()) }?;
-        Some(data.to_vec())
+        objc2::rc::autoreleasepool(|_| {
+            use objc2::AllocAnyThread;
+            use objc2_app_kit::{NSBitmapImageFileType, NSBitmapImageRep, NSWorkspace};
+            use objc2_foundation::{NSDictionary, NSPoint, NSRect, NSSize, NSString};
+            let ws = NSWorkspace::sharedWorkspace();
+            let icon = ws.iconForFile(&NSString::from_str(bundle_path.to_str()?));
+            let mut rect = NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(64.0, 64.0));
+            // SAFETY: rect is a valid in/out pointer; no context or hints.
+            let cg = unsafe { icon.CGImageForProposedRect_context_hints(&mut rect, None, None) }?;
+            let rep = NSBitmapImageRep::initWithCGImage(NSBitmapImageRep::alloc(), &cg);
+            // SAFETY: empty properties dictionary is valid for PNG.
+            let data = unsafe { rep.representationUsingType_properties(NSBitmapImageFileType::PNG, &NSDictionary::new()) }?;
+            Some(data.to_vec())
+        })
+    }
+
+    fn quit_app(&self, pid: u32, force: bool) -> bool {
+        objc2::rc::autoreleasepool(|_| {
+            use objc2_app_kit::NSRunningApplication;
+            match NSRunningApplication::runningApplicationWithProcessIdentifier(pid as libc::pid_t) {
+                Some(app) => if force { app.forceTerminate() } else { app.terminate() },
+                None => false,
+            }
+        })
     }
 
     fn responsible_pid(&self, pid: u32) -> Option<u32> {
@@ -364,14 +380,6 @@ impl Apps for Mac {
         });
         let r = unsafe { (*f)?(pid as libc::pid_t) };
         (r > 0).then_some(r as u32)
-    }
-
-    fn quit_app(&self, pid: u32, force: bool) -> bool {
-        use objc2_app_kit::NSRunningApplication;
-        match NSRunningApplication::runningApplicationWithProcessIdentifier(pid as libc::pid_t) {
-            Some(app) => if force { app.forceTerminate() } else { app.terminate() },
-            None => false,
-        }
     }
 }
 
@@ -481,6 +489,28 @@ mod tests {
     fn responsible_pid_is_known_for_this_process() {
         let me = std::process::id();
         assert!(Mac.responsible_pid(me).is_some(), "symbol should resolve on macOS");
+    }
+
+    #[test]
+    fn listing_apps_repeatedly_does_not_leak_objc_objects() {
+        // Worker threads have no autorelease pool. Before the fix each call leaked every app object.
+        let rss = || {
+            let mut ru: libc::rusage = unsafe { std::mem::zeroed() };
+            unsafe { libc::getrusage(libc::RUSAGE_SELF, &mut ru) };
+            ru.ru_maxrss as u64
+        };
+        let h = std::thread::spawn(move || {
+            for _ in 0..50 {
+                let _ = Mac.running_apps();
+            }
+            let before = rss();
+            for _ in 0..1500 {
+                let _ = Mac.running_apps();
+            }
+            rss().saturating_sub(before)
+        });
+        let grew = h.join().unwrap();
+        assert!(grew < 8 * 1024 * 1024, "peak memory grew by {grew} bytes over 1500 calls");
     }
 
     #[test]
