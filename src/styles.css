@@ -146,3 +146,37 @@ dialog .btns { display: flex; justify-content: flex-end; gap: 8px; }
 @keyframes in { from { opacity: 0; transform: translateY(6px); } }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
 @media (max-width: 1000px) { .grid { grid-template-columns: 1fr; } }
+
+/* storage */
+.crumbs { display: flex; align-items: center; gap: 6px; flex: 1 1 100%; min-width: 0; overflow: hidden; white-space: nowrap; }
+.crumbs .sep { color: var(--muted); }
+.crumbs .here { font-weight: 600; overflow: hidden; text-overflow: ellipsis; }
+.crumbs .link { font-size: 13px; }
+.ico { display: inline-flex; color: var(--muted); flex: none; }
+.ibtn { border: 0; background: none; color: var(--muted); cursor: pointer; padding: 4px; border-radius: 6px; line-height: 0; }
+.ibtn:hover { background: var(--hover); color: var(--text); }
+.tbl.st td { padding: 7px 10px; }
+.tbl.st .nm.link { font-size: 13px; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; }
+.tbl.st .nm.link:hover { color: var(--accent); }
+.tbl.st td.act { white-space: nowrap; }
+.tbl.st .sz { font-weight: 600; }
+.mbar { height: 4px; background: var(--panel2); border-radius: 3px; margin-top: 4px; overflow: hidden; margin-left: auto; width: 84px; }
+.mbar i { display: block; height: 100%; background: var(--accent); border-radius: 3px; }
+.tbl.st tr:hover .ibtn { color: var(--text); }
+.ell { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.card.scan { margin-bottom: 14px; }
+.card.scan .bar { height: 6px; }
+.indet { width: 30% !important; animation: slide 1.1s ease-in-out infinite alternate; }
+@keyframes slide { from { margin-left: 0; } to { margin-left: 70%; } }
+.card.cta { text-align: center; padding: 40px 20px; max-width: 560px; margin: 40px auto 0; }
+.card.cta h2 { font-size: 16px; text-transform: none; letter-spacing: 0; color: var(--text); justify-content: center; }
+.banner.fda { display: flex; align-items: center; gap: 12px; justify-content: space-between; margin: 0 0 12px; }
+.banner.fda span { flex: 1; font-weight: 520; }
+.tmap { position: relative; height: calc(100vh - 210px); min-height: 400px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.cell { position: absolute; border-radius: 6px; padding: 6px 8px; overflow: hidden; display: flex; flex-direction: column; gap: 1px; color: var(--text); font-size: 12px; background: color-mix(in srgb, var(--accent) var(--k), var(--panel2)); }
+.cell.file { background: color-mix(in srgb, var(--purple) var(--k), var(--panel2)); }
+.cell.other { background: var(--panel2); color: var(--muted); }
+.cell.dir { cursor: pointer; }
+.cell.dir:hover, .cell.dir:focus-visible { filter: brightness(1.18); outline-offset: -2px; }
+.cell b { font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cell span { opacity: .85; }

@@ -1,5 +1,6 @@
 mod commands;
 pub mod platform;
+pub mod scan;
 pub mod sysmon;
 
 use tauri::{AppHandle, Manager, RunEvent, WebviewWindowBuilder, WindowEvent};
@@ -31,6 +32,13 @@ pub fn run() {
             commands::quick_look,
             commands::open_fda_settings,
             commands::release_window,
+            commands::pick_folder,
+            commands::scan_start,
+            commands::scan_cancel,
+            commands::scan_status,
+            commands::scan_load_cached,
+            commands::scan_children,
+            commands::scan_clear_cache,
         ])
         // A destroyed window means the WebKit helper processes are gone; drop our caches too.
         .on_window_event(|w, e| {

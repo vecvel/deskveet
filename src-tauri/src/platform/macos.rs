@@ -12,6 +12,18 @@ extern "C" {
     fn malloc_zone_pressure_relief(zone: *mut c_void, goal: usize) -> usize;
 }
 
+extern "C" {
+    fn pthread_set_qos_class_self_np(qos_class: u32, relative_priority: i32) -> i32;
+}
+
+pub fn background_thread() {
+    const QOS_CLASS_UTILITY: u32 = 0x11;
+    // SAFETY: affects only the calling thread.
+    unsafe {
+        pthread_set_qos_class_self_np(QOS_CLASS_UTILITY, 0);
+    }
+}
+
 pub fn trim_memory() {
     // SAFETY: a null zone means "all zones"; goal 0 means "as much as possible".
     unsafe {
@@ -226,6 +238,19 @@ impl Platform for Mac {
 
     fn open_full_disk_access_settings(&self) -> io::Result<()> {
         spawn_reaped(Command::new("/usr/bin/open").arg("x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles"))
+    }
+
+    fn pick_folder(&self) -> Option<PathBuf> {
+        let out = Command::new("/usr/bin/osascript")
+            .args(["-e", "POSIX path of (choose folder with prompt \"Choose a folder to scan\")"])
+            .stderr(Stdio::null())
+            .output()
+            .ok()?;
+        if !out.status.success() {
+            return None;
+        }
+        let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        (!s.is_empty()).then(|| PathBuf::from(s))
     }
 }
 

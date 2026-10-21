@@ -21,6 +21,32 @@ pub fn trim_memory() {
     macos::trim_memory();
 }
 
+/// Lower the calling thread's scheduling class so scans never fight the foreground app for CPU/IO.
+pub fn background_thread() {
+    #[cfg(target_os = "macos")]
+    macos::background_thread();
+}
+
+/// Where scan caches live (safe to delete at any time).
+pub fn cache_dir() -> PathBuf {
+    let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
+    if cfg!(target_os = "macos") {
+        home.join("Library/Caches/app.deskveet.desktop")
+    } else {
+        std::env::var_os("XDG_CACHE_HOME").map(PathBuf::from).unwrap_or_else(|| home.join(".cache")).join("deskveet")
+    }
+}
+
+/// Where durable data (the undo log) lives.
+pub fn data_dir() -> PathBuf {
+    let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
+    if cfg!(target_os = "macos") {
+        home.join("Library/Application Support/app.deskveet.desktop")
+    } else {
+        std::env::var_os("XDG_DATA_HOME").map(PathBuf::from).unwrap_or_else(|| home.join(".local/share")).join("deskveet")
+    }
+}
+
 pub fn current() -> Current {
     Current::default()
 }
@@ -58,6 +84,8 @@ pub trait Platform: Send + Sync {
     fn open(&self, path: &Path) -> io::Result<()>;
     fn quick_look(&self, path: &Path) -> io::Result<()>;
     fn open_full_disk_access_settings(&self) -> io::Result<()>;
+    /// Ask the user for a folder with the native chooser. `None` when cancelled.
+    fn pick_folder(&self) -> Option<PathBuf>;
 }
 
 /// Facts about a process, enough to decide whether we may offer to quit it.

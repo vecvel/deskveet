@@ -1,7 +1,9 @@
 import { h } from "./dom";
+import { store } from "./store";
 import { overviewView } from "./views/overview";
 import { processesView } from "./views/processes";
 import { soonView } from "./views/soon";
+import { storageView } from "./views/storage";
 import { View } from "./views/types";
 
 const ICONS: Record<string, string> = {
@@ -30,7 +32,7 @@ function make(id: string): View {
   switch (id) {
     case "overview": return overviewView(show);
     case "processes": return processesView();
-    case "storage": return soonView("Storage", "Parallel scan, sortable folder sizes and a treemap.", "step 2");
+    case "storage": return storageView();
     case "cleanup": return soonView("Cleanup", "Rule-based cleanup with preview, Trash and an undo log.", "step 3");
     default: return soonView("Settings", "Theme, scan roots and the undo log.", "step 5");
   }
@@ -46,8 +48,8 @@ function show(id: string) {
   if (!v) { v = make(id); views.set(id, v); }
   v.mount(main);
   main.scrollTop = 0;
-  nav.querySelectorAll("button").forEach((b) => b.toggleAttribute("aria-current", b.dataset.id === id));
   nav.querySelectorAll("button").forEach((b) => (b.dataset.id === id ? b.setAttribute("aria-current", "page") : b.removeAttribute("aria-current")));
+  store.set("tab", id);
   void loop(true);
 }
 
@@ -87,8 +89,9 @@ addEventListener("keydown", (e) => {
   const n = Number(e.key);
   if (n >= 1 && n <= TABS.length) { e.preventDefault(); show(TABS[n - 1].id); }
   else if (e.key === "f") { e.preventDefault(); views.get(current)?.find?.(); }
-  else if (e.key === "r") { e.preventDefault(); views.get(current)?.refresh?.(); }
+  else if (e.key === "r") { e.preventDefault(); views.get(current)?.refresh?.(e.shiftKey); }
 });
 addEventListener("contextmenu", (e) => e.preventDefault());
 
-show("overview");
+const last = store.get("tab", "overview");
+show(TABS.some((t) => t.id === last) ? last : "overview");

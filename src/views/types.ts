@@ -7,8 +7,8 @@ export interface View {
   interval?: number;
   /** Cmd+F */
   find?(): void;
-  /** Cmd+R */
-  refresh?(): void;
+  /** Cmd+R (full = Shift+Cmd+R) */
+  refresh?(full?: boolean): void;
   unmount?(): void;
 }
 

@@ -28,3 +28,20 @@ export const env = { home: "" };
 export function tilde(p: string): string {
   return env.home && p.startsWith(env.home) ? "~" + p.slice(env.home.length) : p;
 }
+
+export const num = (n: number) => n.toLocaleString("en-US");
+
+export function ago(unixSecs: number): string {
+  const d = Math.max(0, Date.now() / 1000 - unixSecs);
+  if (d < 60) return "just now";
+  if (d < 3600) return `${Math.floor(d / 60)} min ago`;
+  if (d < 86400) return `${Math.floor(d / 3600)} h ago`;
+  return `${Math.floor(d / 86400)} d ago`;
+}
+
+export function date(unixSecs: number): string {
+  if (!unixSecs) return "—";
+  return new Date(unixSecs * 1000).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+}
+
+export const secs = (ms: number) => (ms < 1000 ? `${ms} ms` : `${(ms / 1000).toFixed(ms < 10000 ? 1 : 0)} s`);
