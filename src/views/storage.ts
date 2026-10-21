@@ -3,13 +3,13 @@ import { h, toast } from "../dom";
 import { ago, bytes, bytesParts, date, env, num, secs, tilde } from "../fmt";
 import { icons } from "../icons";
 import { store } from "../store";
-import { squarify } from "../treemap";
+import { bandedTreemap } from "../treemap";
 import { fda, FDA_HELP } from "../fda";
 import { openPreview } from "../preview";
 import { header, View } from "./types";
 
 type SortKey = "name" | "size" | "mtime";
-const MAP_MAX = 70; // cells in the treemap; the rest is folded into one "other" cell
+const MAP_MAX = 240; // cells in the treemap; the rest is folded into one "other" cell
 
 export function storageView(): View {
   // ── state (lives as long as the app; the DOM is rebuilt on every mount) ──
@@ -31,6 +31,7 @@ export function storageView(): View {
   // ── dom refs (valid while mounted) ──
   let box!: HTMLElement, sub!: HTMLElement, search!: HTMLInputElement;
   let ro: ResizeObserver | null = null;
+  let io: IntersectionObserver | null = null;
 
   const scanning = () => progress !== null;
   /** The scanned folder as people say it: "Home" for the home folder, otherwise its path with ~. */
@@ -145,7 +146,9 @@ export function storageView(): View {
   }
 
   function mapView(rows: Row[]) {
-    const wrap = h("div", { class: "tmap", role: "list", "aria-label": "Treemap of this folder" });
+    const canvas = h("div", { class: "tmap-canvas", role: "list", "aria-label": "Treemap of this folder" });
+    const wrap = h("div", { class: "tmap" }, canvas);
+    const seen = new Set<number>(); // cells already revealed stay put when the layout is redrawn
     const sorted = [...rows].filter((r) => r.size > 0).sort((a, b) => b.size - a.size);
     const shown = sorted.slice(0, MAP_MAX);
     const rest = sorted.slice(MAP_MAX).reduce((s, r) => s + r.size, 0);
@@ -154,8 +157,24 @@ export function storageView(): View {
     const draw = () => {
       const W = wrap.clientWidth, H = wrap.clientHeight;
       if (!W || !H) return;
-      const rects = squarify(cells.map((c) => c.size), W, H);
-      wrap.replaceChildren(...cells.map((c, i) => {
+      const { rects, height } = bandedTreemap(cells.map((c) => c.size), W, H);
+      canvas.style.height = `${height}px`;
+      io?.disconnect();
+      // cells fade and settle in as they scroll into view, a few at a time from the top-left
+      let batch = 0, frame = 0;
+      io = new IntersectionObserver((entries) => {
+        for (const e of entries) {
+          if (!e.isIntersecting) continue;
+          const el = e.target as HTMLElement;
+          io!.unobserve(el);
+          seen.add(Number(el.dataset.i));
+          el.style.transitionDelay = `${Math.min(batch++, 12) * 28}ms`;
+          el.classList.add("in");
+        }
+        cancelAnimationFrame(frame);
+        frame = requestAnimationFrame(() => { batch = 0; });
+      }, { root: wrap, rootMargin: "0px 0px -24px 0px" });
+      canvas.replaceChildren(...cells.map((c, i) => {
         const q = rects[i], r = c.r;
         const kind = !r ? "other" : r.kind === "dir" ? "dir" : r.kind === "file" ? "file" : "other";
         const el = h("div", {
@@ -166,8 +185,12 @@ export function storageView(): View {
           onkeydown: (e: KeyboardEvent) => { if (e.key === "Enter" && r?.kind === "dir") void go(r.path); },
         });
         if (q.w > 74 && q.h > 36) el.append(h("b", { text: r ? r.name : "Other" }), h("span", { text: bytes(c.size) }));
+        el.dataset.i = String(i);
+        if (seen.has(i)) el.classList.add("in");
         return el;
       }));
+      // observe only once the cells are in the page: targets observed while detached never report
+      for (const el of canvas.children) if (!el.classList.contains("in")) io.observe(el);
     };
     ro?.disconnect();
     ro = new ResizeObserver(() => draw());
@@ -229,7 +252,7 @@ export function storageView(): View {
 
   function render() {
     if (!mounted) return;
-    ro?.disconnect();
+    ro?.disconnect(); io?.disconnect();
     const f = document.activeElement === search;
     box.replaceChildren();
     sub.textContent = meta ? `${staleNote ? "Changed since the scan · " : ""}${place(meta.root)} · ${num(meta.files)} files · ${bytes(meta.bytes)} · scanned ${ago(meta.scanned_at)} in ${secs(meta.duration_ms)}` : place(root);
@@ -270,7 +293,7 @@ export function storageView(): View {
       if (booted) render();
       else void boot().then(render).catch((e) => { booted = true; toast(String(e), true); render(); });
     },
-    unmount() { mounted = false; ro?.disconnect(); unFda?.(); },
+    unmount() { mounted = false; ro?.disconnect(); io?.disconnect(); unFda?.(); },
     find() { search?.focus(); search?.select(); },
     refresh(full) { void start(!!full); },
   };

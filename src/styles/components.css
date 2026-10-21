@@ -107,8 +107,9 @@ table.tbl { width: 100%; border-collapse: collapse; table-layout: fixed; }
 .soon { max-width: 520px; margin: 70px auto 0; text-align: center; color: var(--text-2); }
 .soon h2 { color: var(--text); margin-bottom: 6px; font-size: 18px; font-weight: 600; }
 
-dialog { border: 1px solid var(--border); border-radius: 18px; background: var(--panel2); color: var(--text); padding: 20px 22px; width: min(440px, 92vw); margin: auto; }
-dialog::backdrop { background: rgba(20,18,15,.6); }
+/* dialogs and their dimming cover the content area only; the sidebar stays visible (still inert while open) */
+dialog { border: 1px solid var(--border); border-radius: 18px; background: var(--panel2); color: var(--text); padding: 20px 22px; width: min(440px, var(--dialog-max)); margin: auto; left: var(--side-w); max-width: var(--dialog-max); }
+dialog::backdrop { left: var(--side-w); background: var(--scrim); }
 dialog h3 { font-size: 18px; margin-bottom: var(--sp-2); }
 dialog p { color: var(--text-2); margin-bottom: 16px; user-select: text; -webkit-user-select: text; }
 dialog .btns { display: flex; justify-content: flex-end; gap: 8px; }
@@ -144,8 +145,12 @@ dialog .btns { display: flex; justify-content: flex-end; gap: 8px; }
 .banner.info { background: var(--ok-tint); color: var(--ok); }
 .disk .banner { margin-top: var(--sp-2); }
 .stack { display: flex; flex-direction: column; gap: var(--sp-4); }
-.tmap { position: relative; height: calc(100vh - 210px); min-height: 400px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--r); overflow: hidden; }
-.cell { position: absolute; border-radius: 6px; padding: 6px 8px; overflow: hidden; display: flex; flex-direction: column; gap: 1px; color: var(--text); font-size: 12px; background: var(--panel2); }
+/* treemap: a scroller; the largest items fill the first screen, smaller ones follow below it */
+.tmap { position: relative; height: calc(100vh - 210px); min-height: 400px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--r); overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; }
+.tmap-canvas { position: relative; }
+.cell { position: absolute; border-radius: 6px; padding: 6px 8px; overflow: hidden; display: flex; flex-direction: column; gap: 1px; color: var(--text); font-size: 12px; background: var(--panel2);
+  opacity: 0; transform: translateY(10px) scale(.97); transform-origin: top left; transition: opacity var(--reveal) var(--ease-out), transform var(--reveal) var(--ease-out); }
+.cell.in { opacity: 1; transform: none; }
 /* the cell's tint: its hue at --a opacity over the surface (instead of color-mix) */
 .cell::before { content: ""; position: absolute; inset: 0; background: var(--c, var(--accent)); opacity: var(--a, .3); }
 .cell > * { position: relative; }
@@ -169,7 +174,7 @@ dialog .btns { display: flex; justify-content: flex-end; gap: 8px; }
 .rule-head .sz, .item .sz, .pv-row .sz { font-weight: 600; min-width: 74px; text-align: right; white-space: nowrap; }
 input[type="checkbox"] { accent-color: var(--accent); width: 15px; height: 15px; flex: none; cursor: pointer; }
 .rule-body { padding: 4px 16px 12px 42px; }
-.facts { color: var(--text-2); display: grid; gap: 3px; margin-bottom: 8px; user-select: text; -webkit-user-select: text; }
+.facts { color: var(--text-2); display: grid; gap: var(--sp-1); margin-bottom: var(--sp-4); user-select: text; -webkit-user-select: text; }
 .facts b { color: var(--text); font-weight: 600; }
 .items { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
 .item { display: flex; align-items: flex-start; gap: 10px; padding: 7px 12px; border-top: 1px solid var(--border); cursor: pointer; }
@@ -188,7 +193,7 @@ input[type="checkbox"] { accent-color: var(--accent); width: 15px; height: 15px;
 .ack.erase { margin-top: 12px; padding: 10px 12px; border: 1px solid var(--bad); border-radius: 8px; background: var(--bad-tint); }
 
 /* dialogs: preview / undo log */
-dialog.wide { width: min(780px, 94vw); max-height: 86vh; display: flex; flex-direction: column; }
+dialog.wide { width: min(780px, var(--dialog-max)); max-height: 86vh; display: flex; flex-direction: column; }
 dialog.wide[open] { display: flex; }
 dialog.wide .pv-body { overflow: auto; min-height: 0; flex: 1; }
 dialog.wide > .pv-list { overflow: auto; flex: 1; min-height: 0; }
@@ -219,7 +224,7 @@ input.num { width: 64px; background: var(--panel); border: 1px solid var(--borde
 /* settings */
 .set-row { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 10px 0; border-top: 1px solid var(--border); }
 .set-row:first-of-type { border-top: 0; }
-.card .facts { margin: 0; }
+.card > .facts { margin: 0; } /* a card that is only a paragraph of facts (Settings), not the rule details inside Cleanup */
 
 /* header never breaks buttons across lines; it wraps as a whole when space runs out */
 .btn, .seg button, .pill { white-space: nowrap; }

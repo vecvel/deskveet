@@ -34,6 +34,10 @@
   --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px; --sp-5: 24px;
   --r: 14px; --r-control: 999px; --r-sm: 8px;
   --side-w: 188px;
+  --dialog-max: calc(100vw - var(--side-w) - 2 * var(--sp-5));
+  /* motion */
+  --reveal: .5s;
+  --ease-out: cubic-bezier(.2, .7, .2, 1);
   color-scheme: dark;
 }
 @media (prefers-color-scheme: light) {
@@ -71,4 +75,6 @@
   color-scheme: light;
 }
 /* medium window: the sidebar becomes an icon rail */
-@media (max-width: 920px) { :root { --side-w: 80px; } }
+/* ::backdrop doesn't inherit from the page on older WebKit, so it gets its own copy of what it uses */
+::backdrop { --side-w: 188px; --scrim: rgba(20, 18, 15, .55); }
+@media (max-width: 920px) { :root, ::backdrop { --side-w: 80px; } }
