@@ -37,7 +37,7 @@ export function overviewView(go: (id: string) => void): View {
     n.root.querySelector<HTMLElement>(".big")!.innerHTML = `${v}<small>${u} available</small>`;
     const hot = d.used_pct >= 90;
     n.bar.innerHTML = seg(hot ? "c-bad" : "c-used", (d.used / d.total) * 100) + (d.purgeable ? seg("c-purge", (d.purgeable / d.total) * 100) : "");
-    n.txt.innerHTML = dot("accent", "Used", bytes(d.used)) + (d.purgeable ? dot("accent", "Purgeable", bytes(d.purgeable)) : "") + dot("muted", "Free", bytes(d.free)) + dot("muted", "Total", bytes(d.total));
+    n.txt.innerHTML = dot("accent", "Used", bytes(d.used)) + (d.purgeable ? dot("accent", "Purgeable", bytes(d.purgeable)) : "") + dot("text-3", "Free", bytes(d.free)) + dot("text-3", "Total", bytes(d.total));
     n.warn.hidden = !hot;
     n.warn.textContent = `${pct(d.used_pct)} full. Free some space soon: macOS gets slow and unstable when a disk is nearly full.`;
   }
@@ -82,7 +82,7 @@ export function overviewView(go: (id: string) => void): View {
     const [mv, mu] = bytesParts(m.used, 1024);
     memBig.innerHTML = `${mv}<small>${mu} of ${ram(m.total)} used</small>`;
     memBar.innerHTML = seg("c-app", m.app / p) + seg("c-wired", m.wired / p) + seg("c-comp", m.compressed / p);
-    memLegend.innerHTML = dot("accent", "App", ram(m.app)) + dot("sand", "Wired", ram(m.wired)) + dot("slate", "Compressed", ram(m.compressed)) + dot("muted", "Cached", ram(m.cached));
+    memLegend.innerHTML = dot("accent", "App", ram(m.app)) + dot("sand", "Wired", ram(m.wired)) + dot("slate", "Compressed", ram(m.compressed)) + dot("text-3", "Cached", ram(m.cached));
     const lvl = { normal: ["ok", "Normal"], warn: ["warn", "Warning"], critical: ["bad", "Critical"] }[m.pressure];
     memPill.className = `pill ${lvl[0]}`;
     memPill.textContent = `Memory pressure: ${lvl[1]}`;
@@ -107,6 +107,8 @@ export function overviewView(go: (id: string) => void): View {
   const view: View = {
     interval: 1500,
     mount(root) {
+      // The DOM is rebuilt on every visit: forget rows that belonged to the previous one.
+      diskNodes.clear();
       sub = h("span", { class: "sub" });
       const head = header("Overview");
       head.querySelector(".sub")!.replaceWith(sub);
