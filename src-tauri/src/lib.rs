@@ -1,7 +1,13 @@
+pub mod cleaner;
 mod commands;
+pub mod fsutil;
 pub mod platform;
+pub mod rules;
+pub mod safety;
 pub mod scan;
+pub mod sys;
 pub mod sysmon;
+pub mod undo;
 
 use tauri::{AppHandle, Manager, RunEvent, WebviewWindowBuilder, WindowEvent};
 
@@ -39,6 +45,15 @@ pub fn run() {
             commands::scan_load_cached,
             commands::scan_children,
             commands::scan_clear_cache,
+            commands::cleanup_state,
+            commands::cleanup_scan,
+            commands::cleanup_cancel,
+            commands::cleanup_plan,
+            commands::cleanup_run,
+            commands::undo_list,
+            commands::undo_restore,
+            commands::undo_clear,
+            commands::open_trash,
         ])
         // A destroyed window means the WebKit helper processes are gone; drop our caches too.
         .on_window_event(|w, e| {

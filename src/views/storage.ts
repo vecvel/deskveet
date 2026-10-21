@@ -4,6 +4,7 @@ import { ago, bytes, bytesParts, date, env, num, secs, tilde } from "../fmt";
 import { icons } from "../icons";
 import { store } from "../store";
 import { squarify } from "../treemap";
+import { openPreview } from "../preview";
 import { header, View } from "./types";
 
 type SortKey = "name" | "size" | "mtime";
@@ -21,6 +22,7 @@ export function storageView(): View {
   let filter = "";
   let progress: ScanProgress | null = null;
   let booted = false;
+  let staleNote = false;
   let mounted = false;
   let unlisten: (() => void)[] = [];
 
@@ -59,7 +61,7 @@ export function storageView(): View {
     progress = null;
     if (d.error && !d.meta) toast(d.error, true);
     else if (d.error) toast(d.error, true);
-    if (d.meta) { meta = d.meta; root = d.meta.root; await load(root); }
+    if (d.meta) { meta = d.meta; root = d.meta.root; staleNote = false; await load(root); }
     if (mounted) render();
   }
 
@@ -93,7 +95,8 @@ export function storageView(): View {
       b(icons.reveal, "Reveal in Finder", () => act(api.reveal, r.path)),
       b(icons.open, "Open", () => act(api.open, r.path)),
       b(icons.copy, "Copy path", () => void copy(r.path)),
-      b(icons.look, "Quick Look", () => act(api.quickLook, r.path)));
+      b(icons.look, "Quick Look", () => act(api.quickLook, r.path)),
+      b(icons.trash, "Move to Trash…", () => void openPreview({ picks: [r.path], dryRun: false, onCleaned: () => { staleNote = true; void load(cwd).then(render); toast("Moved to the Trash. Rescan to update the sizes."); } })));
   }
 
   function visibleRows(): Row[] {
@@ -133,7 +136,7 @@ export function storageView(): View {
     }
     if (!rows.length) body.append(h("tr", {}, h("td", { colspan: 4, class: "empty", text: filter ? "Nothing matches the filter" : "This folder has nothing above 1 MB" })));
     return h("div", { class: "tbl-wrap" }, h("table", { class: "tbl st" },
-      h("colgroup", {}, h("col"), h("col", { style: "width:112px" }), h("col", { style: "width:112px" }), h("col", { style: "width:124px" })),
+      h("colgroup", {}, h("col"), h("col", { style: "width:112px" }), h("col", { style: "width:112px" }), h("col", { style: "width:152px" })),
       h("thead", {}, h("tr", {}, th("name", "Name"), th("size", "Size", "r"), th("mtime", "Modified", "r"), h("th", {}))), body));
   }
 
@@ -219,7 +222,7 @@ export function storageView(): View {
     ro?.disconnect();
     const f = document.activeElement === search;
     box.replaceChildren();
-    sub.textContent = meta ? `${tilde(meta.root)} · ${num(meta.files)} files · ${bytes(meta.bytes)} · scanned ${ago(meta.scanned_at)} in ${secs(meta.duration_ms)}` : tilde(root);
+    sub.textContent = meta ? `${staleNote ? "Changed since the scan · " : ""}${tilde(meta.root)} · ${num(meta.files)} files · ${bytes(meta.bytes)} · scanned ${ago(meta.scanned_at)} in ${secs(meta.duration_ms)}` : tilde(root);
     if (scanning()) box.append(progressCard());
     if (!meta || !data) { if (!scanning() && booted) box.append(empty()); return; }
     const rows = visibleRows();

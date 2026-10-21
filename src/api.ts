@@ -40,6 +40,36 @@ export type RowKind = "dir" | "file" | "small_dirs" | "small_files";
 export interface Row { name: string; path: string; kind: RowKind; size: number; files: number; mtime: number }
 export interface Children { path: string; size: number; files: number; rows: Row[] }
 
+export type Risk = "safe" | "review" | "caution";
+export type MethodName = "trash" | "tool" | "erase";
+export interface RuleInfo {
+  id: string; name: string; category: string; kind: string; risk: Risk; method: MethodName; description: string;
+  regenerates: string; tool: string | null; opt_in: boolean; needs_admin: boolean;
+}
+export interface CItem {
+  id: string; rule_id: string; label: string; path: string | null; size: number; files: number; mtime: number;
+  blocked: string | null; info: string[];
+}
+export interface RuleResult { rule: RuleInfo; available: boolean; note: string | null; items: CItem[]; total: number; running: string[] }
+export interface CleanupState { running: boolean; rules_version: string; results: RuleResult[]; undo_log: string }
+export interface PlanItem {
+  id: string; rule_id: string; rule_name: string; label: string; path: string | null; size: number; method: MethodName;
+  risk: Risk; command: string | null; recoverable: boolean; blocked: string | null; confirm: string[]; admin_cmd: string | null;
+}
+export interface Plan { token: string; dry_run: boolean; items: PlanItem[]; total: number; erase: boolean }
+export interface ItemResult {
+  id: string; label: string; path: string | null; status: "ok" | "failed" | "skipped" | "dry-run"; method: MethodName;
+  bytes: number; trash_path: string | null; error: string | null;
+}
+export interface Report {
+  run: string; dry_run: boolean; results: ItemResult[]; trashed_bytes: number; freed_bytes: number;
+  ok: number; failed: number; skipped: number; undo_log: string;
+}
+export interface UndoEntry {
+  id: string; run: string; ts: number; at: string; rule: string; label: string; action: string; status: string;
+  path: string | null; trash_path: string | null; bytes: number; command: string[] | null; error: string | null; restored: boolean;
+}
+
 const call = <T>(cmd: string, args?: Record<string, unknown>) => window.__TAURI__.core.invoke<T>(cmd, args);
 
 export const api = {
@@ -56,5 +86,14 @@ export const api = {
   scanStatus: () => call<ScanStatus>("scan_status"),
   scanLoadCached: (root: string) => call<ScanMeta | null>("scan_load_cached", { root }),
   scanChildren: (path: string) => call<Children>("scan_children", { path }),
+  cleanupState: () => call<CleanupState>("cleanup_state"),
+  cleanupScan: () => call<void>("cleanup_scan"),
+  cleanupCancel: () => call<void>("cleanup_cancel"),
+  cleanupPlan: (req: { ids: string[]; picks: string[]; dry_run: boolean }) => call<Plan>("cleanup_plan", { req }),
+  cleanupRun: (req: { token: string; confirm_erase: boolean; overrides: string[] }) => call<Report>("cleanup_run", { req }),
+  undoList: () => call<UndoEntry[]>("undo_list"),
+  undoRestore: (id: string) => call<string>("undo_restore", { id }),
+  undoClear: () => call<void>("undo_clear"),
+  openTrash: () => call<void>("open_trash"),
   listen: <T>(name: string, cb: (payload: T) => void) => window.__TAURI__.event.listen<T>(name, (e) => cb(e.payload)),
 };

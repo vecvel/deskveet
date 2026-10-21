@@ -180,3 +180,55 @@ dialog .btns { display: flex; justify-content: flex-end; gap: 8px; }
 .cell.dir:hover, .cell.dir:focus-visible { filter: brightness(1.18); outline-offset: -2px; }
 .cell b { font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cell span { opacity: .85; }
+
+/* cleanup */
+.cleanup { display: flex; flex-direction: column; gap: 14px; padding-bottom: 80px; }
+.card.sum .col { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
+.card.cat { padding: 12px 0 4px; }
+.card.cat h2 { padding: 0 16px; }
+.rule { border-top: 1px solid var(--line); }
+.rule-head { display: flex; align-items: center; gap: 10px; padding: 8px 16px; }
+.rule-head:hover { background: var(--hover); }
+.rule-toggle { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; background: none; border: 0; cursor: pointer; text-align: left; padding: 2px 0; }
+.rule-toggle .nm { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chev { color: var(--muted); width: 10px; }
+.rule-head .cnt { white-space: nowrap; }
+.rule-head .sz, .item .sz, .pv-row .sz { font-weight: 600; min-width: 74px; text-align: right; white-space: nowrap; }
+input[type="checkbox"] { accent-color: var(--accent); width: 15px; height: 15px; flex: none; cursor: pointer; }
+.rule-body { padding: 4px 16px 12px 42px; }
+.facts { color: var(--muted); display: grid; gap: 3px; margin-bottom: 8px; user-select: text; -webkit-user-select: text; }
+.facts b { color: var(--text); font-weight: 600; }
+.items { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.item { display: flex; align-items: flex-start; gap: 10px; padding: 7px 12px; border-top: 1px solid var(--line); cursor: pointer; }
+.item:first-child { border-top: 0; }
+.item:hover { background: var(--hover); }
+.item.off { opacity: .6; cursor: default; }
+.item .nm { font-weight: 560; }
+.small { font-size: 12px; }
+.path { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pv-main { flex: 1; min-width: 0; }
+.why.bad { color: var(--bad); font-size: 12px; font-weight: 560; }
+.foot-note { text-align: center; padding: 6px 0; }
+.actionbar { position: fixed; left: 188px; right: 0; bottom: 0; display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 12px 22px; background: color-mix(in srgb, var(--panel) 94%, transparent); border-top: 1px solid var(--line); backdrop-filter: blur(10px); z-index: 8; }
+.actionbar[hidden] { display: none; }
+.ack { display: flex; gap: 8px; align-items: flex-start; margin-top: 6px; color: var(--text); font-size: 12.5px; cursor: pointer; }
+.ack.sm { margin: 0; align-items: center; color: var(--muted); }
+.ack.erase { margin-top: 12px; padding: 10px 12px; border: 1px solid var(--bad); border-radius: 8px; background: color-mix(in srgb, var(--bad) 10%, transparent); }
+
+/* dialogs: preview / undo log */
+dialog.wide { width: min(780px, 94vw); max-height: 86vh; display: flex; flex-direction: column; }
+dialog.wide[open] { display: flex; }
+dialog.wide .pv-body { overflow: auto; min-height: 0; flex: 1; }
+dialog.wide > .pv-list { overflow: auto; flex: 1; min-height: 0; }
+dialog.wide .btns { margin-top: 14px; }
+dialog .muted { margin-bottom: 8px; }
+.pv-list { border: 1px solid var(--line); border-radius: 10px; margin-bottom: 4px; }
+.pv-list.short { max-height: 260px; overflow: auto; }
+.pv-row { display: flex; gap: 12px; align-items: flex-start; padding: 9px 12px; border-top: 1px solid var(--line); }
+.pv-row:first-child { border-top: 0; }
+.pv-row.off { opacity: .65; }
+.pv-row .how { font-size: 12px; color: var(--muted); }
+.pv-row .how.warnx { color: var(--warn); font-weight: 560; }
+.pv-row .act2 { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+code.cmd { display: block; background: var(--panel2); border-radius: 6px; padding: 4px 8px; margin-top: 4px; font: 12px ui-monospace, monospace; user-select: text; -webkit-user-select: text; overflow-x: auto; white-space: nowrap; }
+dialog .big { margin: 4px 0 10px; }

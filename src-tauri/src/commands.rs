@@ -1,11 +1,16 @@
 //! The only surface the UI can call. Every command re-validates its inputs.
 
+use crate::cleaner::{Engine, Plan, Report, RuleResult, RunOpts};
 use crate::platform::{self, Platform};
+use crate::rules::Registry;
 use crate::scan::{self, Ctx, Meta, Opts, Row};
+use crate::sys::RealSys;
+use crate::undo::Entry;
 use crate::sysmon::{Monitor, Overview, ProcList, ProcQuery};
 use serde::Serialize;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering::Relaxed};
+use std::collections::{HashSet, VecDeque};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -26,11 +31,32 @@ pub struct AppState {
     pub mon: Mutex<Monitor>,
     loaded: Mutex<Option<Arc<Loaded>>>,
     running: Mutex<Option<Arc<Running>>>,
+    engine: Arc<Engine>,
+    results: Mutex<Arc<Vec<RuleResult>>>,
+    plans: Mutex<VecDeque<(String, Arc<Plan>)>>,
+    /// A cleanup scan or run is in progress.
+    cleaning: AtomicBool,
+    clean_cancel: Arc<AtomicBool>,
+}
+
+fn real_engine() -> Engine {
+    let home = std::path::PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
+    let reg = Registry::macos().expect("the shipped rules file is validated by tests");
+    Engine::new(reg, home.clone(), Arc::new(RealSys::new(home.clone())), home.join(".Trash"), platform::data_dir().join("undo-log.json"))
 }
 
 impl AppState {
     pub fn new() -> Self {
-        Self { mon: Mutex::new(Monitor::new()), loaded: Mutex::new(None), running: Mutex::new(None) }
+        Self {
+            mon: Mutex::new(Monitor::new()),
+            loaded: Mutex::new(None),
+            running: Mutex::new(None),
+            engine: Arc::new(real_engine()),
+            results: Mutex::new(Arc::new(Vec::new())),
+            plans: Mutex::new(VecDeque::new()),
+            cleaning: AtomicBool::new(false),
+            clean_cancel: Arc::new(AtomicBool::new(false)),
+        }
     }
 
     /// Drop everything that can be rebuilt; called when the window (and its webview) goes away.
@@ -257,4 +283,155 @@ pub fn scan_children(state: State<'_, AppState>, path: String) -> Result<Childre
 pub fn scan_clear_cache(state: State<'_, AppState>) -> usize {
     *state.loaded.lock().unwrap() = None;
     scan::clear_cache(&platform::cache_dir())
+}
+
+// ───────────────────────────── cleanup ─────────────────────────────
+
+#[derive(Serialize)]
+pub struct CleanupState {
+    pub running: bool,
+    pub rules_version: String,
+    pub results: Vec<RuleResult>,
+    pub undo_log: String,
+}
+
+#[derive(Serialize, Clone)]
+struct CleanupDone {
+    cancelled: bool,
+}
+
+#[derive(Serialize, Clone)]
+struct CleanProgress {
+    done: usize,
+    total: usize,
+    current: String,
+}
+
+#[tauri::command(async)]
+pub fn cleanup_state(state: State<'_, AppState>) -> CleanupState {
+    CleanupState {
+        running: state.cleaning.load(Relaxed),
+        rules_version: state.engine.reg.rules_version.clone(),
+        results: state.results.lock().unwrap().as_ref().clone(),
+        undo_log: state.engine.undo.path().to_string_lossy().into_owned(),
+    }
+}
+
+/// Scan all rules in the background; each finished rule is pushed to the UI as `cleanup-rule`.
+#[tauri::command(async)]
+pub fn cleanup_scan(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+    if state.cleaning.swap(true, Relaxed) {
+        return Err("Cleanup is already busy.".into());
+    }
+    state.clean_cancel.store(false, Relaxed);
+    *state.results.lock().unwrap() = Arc::new(Vec::new());
+    let eng = state.engine.clone();
+    let cancel = state.clean_cancel.clone();
+    std::thread::Builder::new()
+        .name("cleanup-scan".into())
+        .spawn(move || {
+            let emit_app = app.clone();
+            let res = eng.scan_all(&cancel, &move |rr| {
+                let _ = emit_app.emit("cleanup-rule", rr);
+            });
+            let st = app.state::<AppState>();
+            if !cancel.load(Relaxed) {
+                *st.results.lock().unwrap() = Arc::new(res);
+            }
+            st.cleaning.store(false, Relaxed);
+            let _ = app.emit("cleanup-done", CleanupDone { cancelled: cancel.load(Relaxed) });
+            platform::trim_memory();
+        })
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command(async)]
+pub fn cleanup_cancel(state: State<'_, AppState>) {
+    state.clean_cancel.store(true, Relaxed);
+}
+
+#[derive(serde::Deserialize)]
+pub struct PlanReq {
+    pub ids: Vec<String>,
+    #[serde(default)]
+    pub picks: Vec<String>,
+    pub dry_run: bool,
+}
+
+/// Build the verified preview. Rule items are referenced by the ids our own scan produced.
+#[tauri::command(async)]
+pub fn cleanup_plan(state: State<'_, AppState>, req: PlanReq) -> Result<Plan, String> {
+    if state.cleaning.load(Relaxed) {
+        return Err("Wait for the current scan or clean to finish.".into());
+    }
+    let results = state.results.lock().unwrap().clone();
+    let plan = state.engine.plan(&results, &req.ids, &req.picks, req.dry_run);
+    if plan.items.is_empty() {
+        return Err("Nothing to clean.".into());
+    }
+    let mut plans = state.plans.lock().unwrap();
+    plans.push_back((plan.token.clone(), Arc::new(plan.clone())));
+    while plans.len() > 4 {
+        plans.pop_front();
+    }
+    Ok(plan)
+}
+
+#[derive(serde::Deserialize)]
+pub struct RunReq {
+    pub token: String,
+    #[serde(default)]
+    pub confirm_erase: bool,
+    #[serde(default)]
+    pub overrides: Vec<String>,
+}
+
+#[tauri::command(async)]
+pub fn cleanup_run(app: AppHandle, state: State<'_, AppState>, req: RunReq) -> Result<Report, String> {
+    let plan = {
+        let mut plans = state.plans.lock().unwrap();
+        let i = plans.iter().position(|(t, _)| *t == req.token).ok_or("This preview has expired. Preview again.")?;
+        plans.remove(i).map(|(_, p)| p).unwrap()
+    };
+    if state.cleaning.swap(true, Relaxed) {
+        return Err("Cleanup is already busy.".into());
+    }
+    // Only ids that are part of the plan can be overridden.
+    let in_plan: HashSet<&str> = plan.items.iter().map(|i| i.id.as_str()).collect();
+    let opts = RunOpts { confirm_erase: req.confirm_erase, overrides: req.overrides.iter().filter(|o| in_plan.contains(o.as_str())).cloned().collect() };
+    let eng = state.engine.clone();
+    let emit_app = app.clone();
+    let report = eng.run(&plan, &opts, &move |done, total, current| {
+        let _ = emit_app.emit("cleanup-progress", CleanProgress { done, total, current: current.to_string() });
+    });
+    if !report.dry_run {
+        // what we scanned is out of date now, and so is the storage tree
+        *state.results.lock().unwrap() = Arc::new(Vec::new());
+        *state.loaded.lock().unwrap() = None;
+    }
+    state.cleaning.store(false, Relaxed);
+    platform::trim_memory();
+    Ok(report)
+}
+
+#[tauri::command(async)]
+pub fn undo_list(state: State<'_, AppState>) -> Vec<Entry> {
+    state.engine.undo.list()
+}
+
+#[tauri::command(async)]
+pub fn undo_restore(state: State<'_, AppState>, id: String) -> Result<String, String> {
+    state.engine.restore(&id)
+}
+
+#[tauri::command(async)]
+pub fn undo_clear(state: State<'_, AppState>) -> Result<(), String> {
+    state.engine.undo.clear().map_err(|e| e.to_string())
+}
+
+#[tauri::command(async)]
+pub fn open_trash(state: State<'_, AppState>) -> Result<(), String> {
+    let t = state.engine.trash_dir.clone();
+    state.mon.lock().unwrap().plat().open(&t).map_err(|e| e.to_string())
 }

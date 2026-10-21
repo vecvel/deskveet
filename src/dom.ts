@@ -24,6 +24,17 @@ export function toast(msg: string, err = false) {
 
 export const modal = { open: false };
 
+/** Open a `<dialog>` the page controls. `done()` closes and removes it. */
+export function openDialog(cls: string, labelId: string): { dlg: HTMLDialogElement; done: () => void } {
+  const dlg = h("dialog", { class: cls, "aria-labelledby": labelId });
+  const done = () => { modal.open = false; if (dlg.open) dlg.close(); dlg.remove(); };
+  dlg.addEventListener("cancel", (e) => { e.preventDefault(); done(); });
+  document.body.append(dlg);
+  modal.open = true;
+  dlg.showModal();
+  return { dlg, done };
+}
+
 export function confirmDialog(o: { title: string; body: string; ok: string; danger?: boolean }): Promise<boolean> {
   return new Promise((resolve) => {
     const dlg = h("dialog", { "aria-labelledby": "dlg-t" });

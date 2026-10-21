@@ -1,5 +1,8 @@
 import { h } from "./dom";
+import { api } from "./api";
+import { env } from "./fmt";
 import { store } from "./store";
+import { cleanupView } from "./views/cleanup";
 import { overviewView } from "./views/overview";
 import { processesView } from "./views/processes";
 import { soonView } from "./views/soon";
@@ -22,6 +25,8 @@ const TABS = [
   { id: "settings", label: "Settings" },
 ] as const;
 
+try { void api.scanStatus().then((s) => { env.home = s.home; }).catch(() => {}); } catch { /* backend not ready */ }
+
 const main = document.getElementById("main")!;
 const nav = document.getElementById("nav")!;
 const views = new Map<string, View>();
@@ -33,7 +38,7 @@ function make(id: string): View {
     case "overview": return overviewView(show);
     case "processes": return processesView();
     case "storage": return storageView();
-    case "cleanup": return soonView("Cleanup", "Rule-based cleanup with preview, Trash and an undo log.", "step 3");
+    case "cleanup": return cleanupView();
     default: return soonView("Settings", "Theme, scan roots and the undo log.", "step 5");
   }
 }
