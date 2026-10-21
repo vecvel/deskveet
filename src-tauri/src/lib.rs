@@ -61,6 +61,7 @@ pub fn run() {
             commands::apps_list,
             commands::rules_list,
             commands::locations_info,
+            commands::rules_status,
             commands::locations_redetect,
             commands::apps_quit,
             commands::ui_get_all,

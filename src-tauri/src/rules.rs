@@ -61,6 +61,8 @@ pub struct Rule {
     #[serde(default)]
     pub markers: Vec<String>,
     pub stale_days: Option<u32>,
+    /// Bundle id of the app this rule belongs to; the rule is "not installed" without it.
+    pub app: Option<String>,
 }
 
 impl Rule {

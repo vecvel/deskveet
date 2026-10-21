@@ -35,6 +35,10 @@ pub trait Sys: Send + Sync {
     fn env(&self) -> HashMap<String, String> {
         std::env::vars().collect()
     }
+    /// Is an app with this bundle id installed? `None` when the platform can't tell.
+    fn app_installed(&self, _bundle_id: &str) -> Option<bool> {
+        None
+    }
     /// A quick read-only question to a tool (`go env GOCACHE`). `None` when it is missing or fails.
     fn query(&self, argv: &[String]) -> Option<String> {
         self.capture(argv).ok()
@@ -213,6 +217,20 @@ impl Sys for RealSys {
         let mut m = self.login().clone();
         m.extend(std::env::vars());
         m
+    }
+
+    fn app_installed(&self, bundle_id: &str) -> Option<bool> {
+        #[cfg(target_os = "macos")]
+        {
+            use objc2_app_kit::NSWorkspace;
+            use objc2_foundation::NSString;
+            Some(NSWorkspace::sharedWorkspace().URLForApplicationWithBundleIdentifier(&NSString::from_str(bundle_id)).is_some())
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = bundle_id;
+            None
+        }
     }
 
     fn query(&self, argv: &[String]) -> Option<String> {

@@ -50,7 +50,10 @@ export interface CItem {
   id: string; rule_id: string; label: string; path: string | null; size: number; files: number; mtime: number;
   blocked: string | null; info: string[];
 }
-export interface RuleResult { rule: RuleInfo; available: boolean; note: string | null; items: CItem[]; total: number; running: string[] }
+export interface Location { id: string; path: string | null; source: string; skipped: string[] }
+export type RuleState = "ready" | "not_installed" | "nothing_found" | "location_ignored" | "needs_fda" | "on_demand";
+export interface RuleStatus { id: string; state: RuleState; note: string | null; locations: Location[]; matches: number }
+export interface RuleResult { rule: RuleInfo; locations: Location[]; available: boolean; note: string | null; items: CItem[]; total: number; running: string[] }
 export interface CleanupState { running: boolean; rules_version: string; results: RuleResult[]; undo_log: string }
 export interface PlanItem {
   id: string; rule_id: string; rule_name: string; label: string; path: string | null; size: number; method: MethodName;
@@ -114,6 +117,9 @@ export const api = {
   appsList: () => call<AppRow[]>("apps_list"),
   appsQuit: (targets: { pid: number; bundle_id: string }[], force: boolean) => call<QuitResult[]>("apps_quit", { targets, force }),
   rulesList: () => call<RuleInfo[]>("rules_list"),
+  rulesStatus: () => call<RuleStatus[]>("rules_status"),
+  locationsInfo: () => call<Location[]>("locations_info"),
+  locationsRedetect: () => call<Location[]>("locations_redetect"),
   fdaStatus: () => call<"granted" | "denied" | "unknown">("fda_status"),
   clearScanCache: () => call<number>("scan_clear_cache"),
   listen: <T>(name: string, cb: (payload: T) => void) => window.__TAURI__.event.listen<T>(name, (e) => cb(e.payload)),

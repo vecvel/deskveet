@@ -272,3 +272,8 @@ input.switch:checked::after { transform: translateX(14px); background: var(--acc
 /* round icon button on the surface tint (card header actions) */
 .icon-btn { width: 26px; height: 26px; border-radius: 50%; border: 0; background: var(--panel2); color: var(--text-2); display: inline-flex; align-items: center; justify-content: center; cursor: pointer; padding: 0; flex: none; }
 .icon-btn svg { width: 14px; height: 14px; }
+
+.why.warnx { color: var(--warn); }
+.rules-tools .search { min-width: 140px; }
+.rule-row .act2 { display: flex; flex-direction: column; align-items: flex-end; gap: var(--sp-1); }
+.status b:first-child { margin-left: 0; }

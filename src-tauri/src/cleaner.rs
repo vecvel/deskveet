@@ -83,6 +83,18 @@ pub struct RuleResult {
     pub running: Vec<String>,
 }
 
+/// What a rule can do on this Mac, without measuring anything (fast enough for a settings list).
+#[derive(Serialize, Clone, Debug)]
+pub struct RuleStatus {
+    pub id: String,
+    /// ready | not_installed | nothing_found | location_ignored | needs_fda | on_demand
+    pub state: &'static str,
+    pub note: Option<String>,
+    pub locations: Vec<Resolved>,
+    /// Folders or files matched right now (capped).
+    pub matches: usize,
+}
+
 #[derive(Clone, Debug)]
 enum Source {
     Rule(String),
@@ -399,12 +411,10 @@ impl Engine {
 
     pub fn scan_rule(&self, rule: &Rule, procs: &[ProcInfo]) -> RuleResult {
         let mut rr = RuleResult { rule: rule.into(), locations: self.rule_locations(rule), available: true, note: None, items: Vec::new(), total: 0, running: running_matches(procs, &rule.busy, self.me) };
-        if let Some(d) = &rule.detect {
-            if !self.sys.detect(d) {
-                rr.available = false;
-                rr.note = Some("Not installed on this Mac".into());
-                return rr;
-            }
+        if let Some(why) = self.not_installed(rule) {
+            rr.available = false;
+            rr.note = Some(why);
+            return rr;
         }
         let items = match (rule.kind, rule.dynamic.as_deref()) {
             (Kind::Dynamic, Some("simctl_devices")) => self.sim_devices(rule),
@@ -584,6 +594,74 @@ impl Engine {
         it.info.push(format!("{n} unavailable device(s)"));
         it.info.push(format!("Runs: {}", rule.tool_display().unwrap_or_default()));
         Ok(vec![it])
+    }
+
+    // ── status (no measuring) ──
+
+    pub fn status_all(&self) -> Vec<RuleStatus> {
+        let _ = self.locations(); // resolve once before fanning out
+        self.pool(|| self.reg.rules.par_iter().map(|r| self.rule_status(r)).collect())
+    }
+
+    pub fn rule_status(&self, rule: &Rule) -> RuleStatus {
+        let locations = self.rule_locations(rule);
+        let st = |state, note: Option<String>, matches| RuleStatus { id: rule.id.clone(), state, note, locations: locations.clone(), matches };
+        if rule.kind == Kind::Artifact {
+            return st("on_demand", Some("Looks inside the project folders you choose".into()), 0);
+        }
+        if let Some(why) = self.not_installed(rule) {
+            return st("not_installed", Some(why), 0);
+        }
+        if let Some(l) = locations.iter().find(|l| l.path.is_none()) {
+            return if l.skipped.is_empty() {
+                st("nothing_found", Some(format!("No {} folder on this Mac", l.id.replace('_', " "))), 0)
+            } else {
+                st("location_ignored", Some(l.skipped.join("; ")), 0)
+            };
+        }
+        if rule.dynamic.as_deref() == Some("trash") {
+            if let Err(e) = fs::read_dir(&self.trash_dir) {
+                if e.raw_os_error() == Some(1) || e.kind() == std::io::ErrorKind::PermissionDenied {
+                    return st("needs_fda", Some("Full Disk Access is needed to see the Trash".into()), 0);
+                }
+            }
+        }
+        if rule.paths.is_empty() {
+            return st("ready", None, 0); // tool-only rules (docker, unavailable simulators)
+        }
+        let n = self.rule_paths(rule).len().min(1000);
+        if n == 0 && self.blocked_by_privacy(rule) {
+            st("needs_fda", Some("macOS blocks this folder: Full Disk Access is needed".into()), 0)
+        } else if n == 0 {
+            st("nothing_found", Some("Nothing to clean right now".into()), 0)
+        } else {
+            st("ready", None, n)
+        }
+    }
+
+    /// Why the rule doesn't apply on this Mac: its app or tool is missing.
+    fn not_installed(&self, rule: &Rule) -> Option<String> {
+        if let Some(app) = &rule.app {
+            if self.sys.app_installed(app) == Some(false) {
+                return Some(format!("{} is not installed", rule.name.trim_end_matches(" cache")));
+            }
+        }
+        if let Some(d) = &rule.detect {
+            if !self.sys.detect(d) {
+                return Some("Not installed on this Mac".into());
+            }
+        }
+        None
+    }
+
+    /// A pattern's fixed part (the folder before the first wildcard) exists but macOS refuses to list it.
+    fn blocked_by_privacy(&self, rule: &Rule) -> bool {
+        let (inc, _) = self.expanded(rule);
+        inc.iter().any(|p| {
+            let fixed: PathBuf = Path::new(p).components().take_while(|c| !c.as_os_str().to_string_lossy().contains(['*', '?', '['])).collect();
+            let dir = if fixed.is_dir() { fixed } else { fixed.parent().map(Path::to_path_buf).unwrap_or_default() };
+            matches!(fs::read_dir(&dir), Err(e) if e.raw_os_error() == Some(1))
+        })
     }
 
     // ── project build artifacts ──
@@ -1035,6 +1113,7 @@ mod tests {
         /// false = behave like a system that cannot report the Trash path (forces the fallback).
         report_dest: Mutex<bool>,
         env: Mutex<HashMap<String, String>>,
+        missing_apps: Mutex<HashSet<String>>,
     }
 
     impl Sys for FakeSys {
@@ -1071,6 +1150,9 @@ mod tests {
         fn env(&self) -> HashMap<String, String> {
             self.env.lock().unwrap().clone()
         }
+        fn app_installed(&self, id: &str) -> Option<bool> {
+            Some(!self.missing_apps.lock().unwrap().contains(id))
+        }
     }
 
     struct Fx {
@@ -1103,6 +1185,7 @@ mod tests {
             fail_tools: Mutex::new(false),
             report_dest: Mutex::new(true),
             env: Mutex::new(HashMap::new()),
+            missing_apps: Mutex::new(HashSet::new()),
         });
         let eng = Engine::new(Registry::macos().unwrap(), home.clone(), sys.clone(), trash, t.path().join("undo.json"));
         Fx { _t: t, home, sys, eng }
@@ -1586,5 +1669,26 @@ mod tests {
         let rr = scan(&f, "android.gradle_caches");
         assert!(rr.items.is_empty(), "nothing inside Documents is offered");
         assert!(rr.locations[0].skipped.iter().any(|s| s.contains("$GRADLE_USER_HOME")), "{:?}", rr.locations);
+    }
+
+    #[test]
+    fn status_explains_each_rule_without_measuring() {
+        let f = fx();
+        put(&f.home.join("Library/Developer/Xcode/DerivedData/A-1/x"), 10);
+        f.sys.missing_tools.lock().unwrap().insert("brew".into());
+        f.sys.env.lock().unwrap().insert("GRADLE_USER_HOME".into(), f.home.join("Documents").to_string_lossy().into_owned());
+        let all = f.eng.status_all();
+        let by = |id: &str| all.iter().find(|s| s.id == id).unwrap().clone();
+        assert_eq!(by("xcode.derived_data").state, "ready");
+        assert_eq!(by("xcode.derived_data").matches, 1);
+        assert_eq!(by("brew.cache").state, "not_installed");
+        assert_eq!(by("android.gradle_caches").state, "location_ignored");
+        assert_eq!(by("xcode.archives").state, "nothing_found", "no Archives folder in the fixture");
+        assert_eq!(by("artifact.node_modules").state, "on_demand");
+        f.sys.missing_apps.lock().unwrap().insert("org.mozilla.firefox".into());
+        let ff = f.eng.rule_status(f.eng.reg.get("browser.firefox").unwrap());
+        assert_eq!((ff.state, ff.note.as_deref()), ("not_installed", Some("Firefox is not installed")));
+        assert!(!scan(&f, "browser.firefox").available, "scans skip it too");
+        assert_eq!(all.len(), f.eng.reg.rules.len());
     }
 }

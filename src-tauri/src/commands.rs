@@ -704,3 +704,9 @@ pub fn locations_redetect(state: State<'_, AppState>) -> Vec<crate::locate::Reso
     state.engine.redetect();
     locations_info(state)
 }
+
+/// Every rule's status on this Mac (installed, found, location problems), without measuring sizes.
+#[tauri::command(async)]
+pub fn rules_status(state: State<'_, AppState>) -> Vec<crate::cleaner::RuleStatus> {
+    state.engine.status_all()
+}

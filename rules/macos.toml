@@ -428,6 +428,7 @@ opt_in = true
 
 [[rule]]
 id = "browser.chrome"
+app = "com.google.Chrome"
 name = "Google Chrome cache"
 category = "Browsers"
 paths = [
@@ -444,6 +445,7 @@ busy = ["Google Chrome"]
 
 [[rule]]
 id = "browser.brave"
+app = "com.brave.Browser"
 name = "Brave cache"
 category = "Browsers"
 paths = [
@@ -460,6 +462,7 @@ busy = ["Brave Browser"]
 
 [[rule]]
 id = "browser.safari"
+app = "com.apple.Safari"
 name = "Safari cache"
 category = "Browsers"
 paths = ["~/Library/Caches/com.apple.Safari/*"]
@@ -471,6 +474,7 @@ busy = ["Safari"]
 
 [[rule]]
 id = "browser.firefox"
+app = "org.mozilla.firefox"
 name = "Firefox cache"
 category = "Browsers"
 paths = ["~/Library/Caches/Firefox/Profiles/*/cache2", "~/Library/Caches/Firefox/Profiles/*/startupCache"]

@@ -1,4 +1,5 @@
-import { api, About, RuleInfo } from "../api";
+import { api, About, Location, RuleInfo, RuleResult, RuleState, RuleStatus } from "../api";
+import { openPreview } from "../preview";
 import { h, toast } from "../dom";
 import { bytes, tilde } from "../fmt";
 import { store } from "../store";
@@ -19,7 +20,32 @@ export const disabledRules = () => new Set(store.get<string[]>("rules.disabled",
 export function settingsView(): View {
   let about: About | null = null;
   let rules: RuleInfo[] = [];
+  let status = new Map<string, RuleStatus>();
+  let scanned = new Map<string, RuleResult>();
+  let locations: Location[] = [];
   let rulesOpen = store.get("set.rulesOpen", false);
+  let locsOpen = store.get("set.locsOpen", false);
+  let query = "";
+  let filter: "all" | "here" | "missing" | "off" = "all";
+  let checking = false;
+
+  async function loadRules(redetect = false) {
+    checking = true; render();
+    try {
+      if (redetect) locations = await api.locationsRedetect();
+      const [list, st, cs, locs] = await Promise.all([api.rulesList(), api.rulesStatus(), api.cleanupState(), redetect ? Promise.resolve(locations) : api.locationsInfo()]);
+      rules = list; locations = locs;
+      status = new Map(st.map((x) => [x.id, x]));
+      scanned = new Map(cs.results.map((r) => [r.rule.id, r]));
+    } catch (e) { toast(String(e), true); }
+    checking = false; render();
+  }
+
+  const STATE: Record<RuleState, [string, string]> = {
+    ready: ["ok", "Ready"], not_installed: ["", "Not on this Mac"], nothing_found: ["", "Nothing found"],
+    location_ignored: ["warn", "Location ignored"], needs_fda: ["warn", "Needs Full Disk Access"], on_demand: ["", "In your projects"],
+  };
+  const applies = (s?: RuleStatus) => !!s && (s.state === "ready" || s.state === "on_demand" || s.state === "needs_fda" || s.state === "location_ignored");
   let box!: HTMLElement;
 
   function group<T extends string | number>(label: string, key: string, value: T, options: [T, string][], onPick: (v: T) => void) {
@@ -34,33 +60,85 @@ export function settingsView(): View {
     return h("div", { class: "set-row" }, h("div", { class: "pv-main" }, h("div", { class: "nm", text: title }), h("div", { class: "muted small", text: help })), control);
   }
 
+  function ruleRow(r: RuleInfo, off: Set<string>) {
+    const st = status.get(r.id);
+    const sc = scanned.get(r.id);
+    const sw = h("input", { type: "checkbox", class: "switch", role: "switch", "aria-label": `${r.name} rule` });
+    sw.checked = !off.has(r.id);
+    sw.addEventListener("change", () => {
+      const now = disabledRules();
+      sw.checked ? now.delete(r.id) : now.add(r.id);
+      store.set("rules.disabled", [...now]);
+      render();
+    });
+    const [cls, label] = st ? STATE[st.state] : ["", "Checking\u2026"];
+    const ids = sc?.items.filter((i) => !i.blocked).map((i) => i.id) ?? [];
+    const right = h("div", { class: "act2" });
+    if (sc && sc.total) right.append(h("div", { class: "sz", text: bytes(sc.total) }));
+    if (ids.length && sw.checked) right.append(h("button", { class: "btn sm", text: "Clean now", onclick: (e: Event) => { e.preventDefault(); void openPreview({ ids, dryRun: store.get("cl.dry", false), onCleaned: () => void loadRules() }); } }));
+    const where = (st?.locations ?? []).map((l) => h("div", { class: "tertiary small", text: l.path ? `Looks in ${tilde(l.path)} (${l.source === "default" ? "default location" : `from ${l.source}`})` : `No ${l.id.replace(/_/g, " ")} folder found` }));
+    const skipped = (st?.locations ?? []).flatMap((l) => l.skipped).map((x) => h("div", { class: "why warnx small", text: x }));
+    return h("label", { class: "rule-row" + (sw.checked ? "" : " off") }, sw,
+      h("div", { class: "pv-main" },
+        h("div", { class: "row gap-2 wrap" }, h("span", { class: "nm", text: r.name }),
+          h("span", { class: `pill ${r.risk === "safe" ? "ok" : r.risk === "review" ? "warn" : "bad"}`, text: r.risk }),
+          h("span", { class: "status" }, h("b", { class: cls, text: label }), st?.note && st.state !== "ready" ? ` ${st.note}` : st?.matches ? ` ${st.matches} found` : "")),
+        h("div", { class: "muted small", text: r.description }), ...where, ...skipped),
+      right);
+  }
+
   function rulesCard() {
     const off = disabledRules();
-    const onCount = rules.length - rules.filter((r) => off.has(r.id)).length;
+    const here = rules.filter((r) => applies(status.get(r.id))).length;
+    const fda = rules.filter((r) => status.get(r.id)?.state === "needs_fda").length;
     const card = h("section", { class: "card" },
       h("button", { class: "disclose", "aria-expanded": String(rulesOpen), onclick: () => { rulesOpen = !rulesOpen; store.set("set.rulesOpen", rulesOpen); render(); } },
         h("span", { class: "chev", text: rulesOpen ? "\u25be" : "\u25b8" }),
         h("span", { class: "pv-main" }, h("div", { class: "nm", text: "Cleanup rules" }),
-          h("div", { class: "muted small", text: rules.length ? `${onCount} of ${rules.length} on. Rules that are off are skipped by scans and can't be cleaned.` : "\u2026" }))));
+          h("div", { class: "muted small", text: rules.length
+            ? `${rules.length - off.size} of ${rules.length} on \u00b7 ${here} apply on this Mac${fda ? ` \u00b7 ${fda} need Full Disk Access` : ""}. Rules that are off are skipped by scans and can't be cleaned.`
+            : "\u2026" }))));
     if (!rulesOpen) return card;
-    const cats = [...new Set(rules.map((r) => r.category))];
-    for (const cat of cats) {
-      const group = h("div", { class: "rules-cat" }, h("h4", { text: cat }));
-      for (const r of rules.filter((x) => x.category === cat)) {
-        const sw = h("input", { type: "checkbox", class: "switch", role: "switch", "aria-label": `${r.name} rule` });
-        sw.checked = !off.has(r.id);
-        sw.addEventListener("change", () => {
-          const now = disabledRules();
-          sw.checked ? now.delete(r.id) : now.add(r.id);
-          store.set("rules.disabled", [...now]);
-          render();
-        });
-        group.append(h("label", { class: "rule-row" + (sw.checked ? "" : " off") }, sw,
-          h("div", { class: "pv-main" },
-            h("div", { class: "row gap-2" }, h("span", { class: "nm", text: r.name }), h("span", { class: `pill ${r.risk === "safe" ? "ok" : r.risk === "review" ? "warn" : "bad"}`, text: r.risk })),
-            h("div", { class: "muted small", text: r.description }))));
-      }
-      card.append(group);
+    const search = h("input", { class: "search", type: "search", placeholder: "Filter rules", "aria-label": "Filter rules", value: query });
+    search.addEventListener("input", () => { query = search.value; render(); card.ownerDocument.querySelector<HTMLInputElement>(".rules-tools .search")?.focus(); });
+    const seg = h("div", { class: "seg", role: "group", "aria-label": "Show" });
+    for (const [k, t] of [["all", "All"], ["here", "On this Mac"], ["missing", "Not here"], ["off", "Off"]] as const) {
+      seg.append(h("button", { text: t, "aria-pressed": String(filter === k), onclick: () => { filter = k; render(); } }));
+    }
+    card.append(h("div", { class: "toolbar rules-tools mt-3" }, search, seg,
+      h("button", { class: "btn sm", text: checking ? "Checking\u2026" : "Check again", disabled: checking, onclick: () => void loadRules() })));
+    const q = query.trim().toLowerCase();
+    const shown = rules.filter((r) => {
+      const st = status.get(r.id);
+      if (q && !(r.name.toLowerCase().includes(q) || r.category.toLowerCase().includes(q) || r.id.includes(q))) return false;
+      if (filter === "here") return applies(st);
+      if (filter === "missing") return !!st && !applies(st);
+      if (filter === "off") return off.has(r.id);
+      return true;
+    });
+    for (const cat of [...new Set(shown.map((r) => r.category))]) {
+      card.append(h("div", { class: "rules-cat" }, h("h4", { text: cat }), ...shown.filter((x) => x.category === cat).map((r) => ruleRow(r, off))));
+    }
+    if (!shown.length) card.append(h("p", { class: "muted mt-3", text: "No rule matches." }));
+    return card;
+  }
+
+  function locationsCard() {
+    const card = h("section", { class: "card" },
+      h("button", { class: "disclose", "aria-expanded": String(locsOpen), onclick: () => { locsOpen = !locsOpen; store.set("set.locsOpen", locsOpen); render(); } },
+        h("span", { class: "chev", text: locsOpen ? "\u25be" : "\u25b8" }),
+        h("span", { class: "pv-main" }, h("div", { class: "nm", text: "Tool locations" }),
+          h("div", { class: "muted small", text: "Where Deskveet found each tool's folders: asked the tool, read your shell's variables, or used the default." }))));
+    if (!locsOpen) return card;
+    card.append(h("div", { class: "toolbar mt-3" }, h("span", { class: "sp" }),
+      h("button", { class: "btn sm", text: checking ? "Looking\u2026" : "Re-detect", disabled: checking, onclick: () => void loadRules(true) })));
+    for (const l of locations) {
+      card.append(h("div", { class: "rule-row" },
+        h("div", { class: "pv-main" },
+          h("div", { class: "nm", text: l.id.replace(/_/g, " ") }),
+          h("div", { class: "path", text: l.path ? tilde(l.path) : "Not found on this Mac" }),
+          ...l.skipped.map((x) => h("div", { class: "why warnx small", text: x }))),
+        h("span", { class: "tertiary small", text: l.path ? (l.source === "default" ? "default" : l.source) : "" })));
     }
     return card;
   }
@@ -75,6 +153,7 @@ export function settingsView(): View {
         row("Close the window when hidden", "The window is what costs memory (about 70 MB in WebKit helper processes). After this long out of sight it is closed; Deskveet keeps running and reopens instantly from the Dock.",
           group<number>("Release delay", "release", rel, [[30, "30 s"], [60, "1 min"], [300, "5 min"], [0, "Never"]], () => {}))),
       rulesCard(),
+      locationsCard(),
       h("section", { class: "card" }, h("h2", { text: "Data on this Mac" }),
         row("Scan cache", about ? `${bytes(about.cache_bytes)} in ${tilde(about.cache_dir)}. Safe to delete; the next scan is just slower.` : "…",
           h("button", { class: "btn", text: "Clear scan cache", onclick: async () => { const n = await api.clearScanCache(); toast(`Removed ${n} cache file${n === 1 ? "" : "s"}`); about = await api.about(); render(); } })),
@@ -92,7 +171,7 @@ export function settingsView(): View {
       root.append(header("Settings"), box);
       render();
       void api.about().then((a) => { about = a; render(); }).catch(() => {});
-      void api.rulesList().then((r) => { rules = r; render(); }).catch(() => {});
+      void loadRules();
     },
   };
 }
