@@ -581,3 +581,13 @@ pub fn about(state: State<'_, AppState>) -> About {
         undo_log: state.engine.undo.path().to_string_lossy().into_owned(),
     }
 }
+
+/// "granted" | "denied" | "unknown" for the build that is running right now.
+#[tauri::command(async)]
+pub fn fda_status(state: State<'_, AppState>) -> &'static str {
+    match state.mon.lock().unwrap().plat().full_disk_access() {
+        Some(true) => "granted",
+        Some(false) => "denied",
+        None => "unknown",
+    }
+}

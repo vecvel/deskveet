@@ -55,6 +55,7 @@ pub fn run() {
             commands::undo_clear,
             commands::open_trash,
             commands::about,
+            commands::fda_status,
             commands::ui_get_all,
             commands::ui_set,
             commands::artifact_state,

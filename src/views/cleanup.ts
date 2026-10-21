@@ -1,6 +1,7 @@
 import { api, CItem, RuleResult, Risk } from "../api";
 import { h, toast } from "../dom";
 import { ago, bytes, date, num, tilde } from "../fmt";
+import { fda, FDA_HELP } from "../fda";
 import { openPreview } from "../preview";
 import { store } from "../store";
 import { openUndoLog } from "../undolog";
@@ -23,6 +24,7 @@ export function cleanupView(): View {
   let unlisten: (() => void)[] = [];
   let raf = 0;
   let box!: HTMLElement, sub!: HTMLElement, bar!: HTMLElement, abox!: HTMLElement;
+  let unFda: (() => void) | null = null;
   let tab = store.get<"caches" | "artifacts">("cl.tab", "caches");
   const art = artifactsView();
   let artMounted = false;
@@ -164,9 +166,13 @@ export function cleanupView(): View {
       scanning ? h("div", { class: "bar" }, h("i", { class: "c-used indet" })) : null));
 
     const needsFda = results.find((r) => r.note?.includes("Full Disk Access"));
-    if (needsFda) {
+    if (needsFda && fda.get() === "granted") {
+      box.append(h("div", { class: "banner info" },
+        h("span", { text: "Full Disk Access is on. Rescan to see what is in the Trash." }),
+        h("button", { class: "btn sm", text: "Rescan", onclick: () => void rescan() })));
+    } else if (needsFda) {
       box.append(h("div", { class: "banner fda" },
-        h("span", { text: `${needsFda.rule.name}: ${needsFda.note}. Grant Deskveet Full Disk Access in System Settings, then rescan.` }),
+        h("span", { text: `Deskveet can't see the Trash yet. ${FDA_HELP}` }),
         h("button", { class: "btn sm", text: "Open Full Disk Access settings", onclick: () => void api.openFda().catch((e) => toast(String(e), true)) })));
     }
     const withItems = results.filter((r) => r.available && r.items.length);
@@ -212,10 +218,12 @@ export function cleanupView(): View {
         api.listen<RuleResult>("cleanup-rule", (rr) => upsert(rr)),
         api.listen<{ cancelled: boolean }>("cleanup-done", async () => { scanning = false; scannedAt = Date.now() / 1000; const st = await api.cleanupState(); if (st.results.length) results = st.results; render(); }),
       ]).then((u) => { unlisten.forEach((f) => f()); unlisten = u; });
+      unFda = fda.subscribe(() => { if (tab === "caches") render(); });
+      void fda.refresh();
       if (booted) { render(); showTab(); }
       else void boot().then(() => { render(); showTab(); }).catch((e) => { booted = true; toast(String(e), true); render(); showTab(); });
     },
-    unmount() { mounted = false; cancelAnimationFrame(raf); raf = 0; if (artMounted) { art.unmount?.(); artMounted = false; } },
+    unmount() { mounted = false; unFda?.(); cancelAnimationFrame(raf); raf = 0; if (artMounted) { art.unmount?.(); artMounted = false; } },
     find() { if (tab === "artifacts") art.find?.(); },
     refresh() { if (tab === "artifacts") art.refresh?.(); else void rescan(); },
   };

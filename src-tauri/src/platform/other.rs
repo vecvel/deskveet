@@ -32,6 +32,9 @@ impl Platform for Generic {
     fn open_full_disk_access_settings(&self) -> io::Result<()> {
         Ok(())
     }
+    fn full_disk_access(&self) -> Option<bool> {
+        None
+    }
     fn pick_folder(&self) -> Option<PathBuf> {
         None
     }

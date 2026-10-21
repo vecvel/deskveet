@@ -84,6 +84,8 @@ pub trait Platform: Send + Sync {
     fn open(&self, path: &Path) -> io::Result<()>;
     fn quick_look(&self, path: &Path) -> io::Result<()>;
     fn open_full_disk_access_settings(&self) -> io::Result<()>;
+    /// Does *this running build* have Full Disk Access? `None` when it cannot be told.
+    fn full_disk_access(&self) -> Option<bool>;
     /// Ask the user for a folder with the native chooser. `None` when cancelled.
     fn pick_folder(&self) -> Option<PathBuf>;
 }

@@ -105,6 +105,7 @@ export const api = {
   artifactState: () => call<ArtifactState>("artifact_state"),
   artifactScan: (roots: string[]) => call<void>("artifact_scan", { roots }),
   about: () => call<About>("about"),
+  fdaStatus: () => call<"granted" | "denied" | "unknown">("fda_status"),
   clearScanCache: () => call<number>("scan_clear_cache"),
   listen: <T>(name: string, cb: (payload: T) => void) => window.__TAURI__.event.listen<T>(name, (e) => cb(e.payload)),
 };

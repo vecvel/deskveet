@@ -240,6 +240,20 @@ impl Platform for Mac {
         spawn_reaped(Command::new("/usr/bin/open").arg("x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles"))
     }
 
+    fn full_disk_access(&self) -> Option<bool> {
+        // Folders macOS privacy protection guards. Listing one succeeds only with Full Disk Access.
+        let home = PathBuf::from(std::env::var_os("HOME")?);
+        let mut blocked = false;
+        for rel in ["Library/Safari", "Library/Mail", "Library/Messages", ".Trash", "Library/Application Support/com.apple.TCC"] {
+            match std::fs::read_dir(home.join(rel)) {
+                Ok(_) => return Some(true),
+                Err(e) if e.raw_os_error() == Some(1) || e.kind() == io::ErrorKind::PermissionDenied => blocked = true,
+                Err(_) => {}
+            }
+        }
+        blocked.then_some(false)
+    }
+
     fn pick_folder(&self) -> Option<PathBuf> {
         let out = Command::new("/usr/bin/osascript")
             .args(["-e", "POSIX path of (choose folder with prompt \"Choose a folder to scan\")"])
@@ -344,6 +358,14 @@ mod tests {
         assert_eq!(m.reveal_target(exe), PathBuf::from("/Applications/Google Chrome.app"));
         let plain = Path::new("/opt/homebrew/bin/node");
         assert_eq!(m.reveal_target(plain), PathBuf::from("/opt/homebrew/bin/node"));
+    }
+
+    #[test]
+    fn full_disk_access_probe_gives_an_answer() {
+        // Read-only: lists a protected folder. A plain test runner has no Full Disk Access.
+        let r = Mac.full_disk_access();
+        assert!(r.is_some(), "the probe should be able to tell on macOS");
+        eprintln!("full disk access for this test binary: {r:?}");
     }
 
     #[test]

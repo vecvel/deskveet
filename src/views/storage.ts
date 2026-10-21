@@ -4,6 +4,7 @@ import { ago, bytes, bytesParts, date, env, num, secs, tilde } from "../fmt";
 import { icons } from "../icons";
 import { store } from "../store";
 import { squarify } from "../treemap";
+import { fda, FDA_HELP } from "../fda";
 import { openPreview } from "../preview";
 import { header, View } from "./types";
 
@@ -25,12 +26,15 @@ export function storageView(): View {
   let staleNote = false;
   let mounted = false;
   let unlisten: (() => void)[] = [];
+  let unFda: (() => void) | null = null;
 
   // ── dom refs (valid while mounted) ──
   let box!: HTMLElement, sub!: HTMLElement, search!: HTMLInputElement;
   let ro: ResizeObserver | null = null;
 
   const scanning = () => progress !== null;
+  /** The scanned folder as people say it: "Home" for the home folder, otherwise its path with ~. */
+  const place = (p: string) => (p === env.home ? "Home" : tilde(p));
 
   async function boot() {
     const st = await api.scanStatus();
@@ -178,10 +182,11 @@ export function storageView(): View {
 
   function crumbs() {
     const rel = cwd.startsWith(root) ? cwd.slice(root.length).split("/").filter(Boolean) : [];
-    const items: [string, string][] = [[tilde(root) || root, root]];
+    const items: [string, string][] = [[root === env.home ? "Home" : root.split("/").pop() || root, root]];
     let p = root;
     for (const part of rel) { p = `${p}/${part}`; items.push([part, p]); }
-    const nav = h("nav", { class: "crumbs", "aria-label": "Folder path" });
+    const nav = h("nav", { class: "crumbs", "aria-label": "Folder path", title: cwd });
+    nav.append(ico(icons.folder));
     items.forEach(([label, path], i) => {
       if (i) nav.append(h("span", { class: "sep", text: "›" }));
       nav.append(i === items.length - 1 ? h("span", { class: "here", text: label }) : h("button", { class: "link", text: label, onclick: () => void go(path) }));
@@ -204,7 +209,7 @@ export function storageView(): View {
   function empty() {
     return h("section", { class: "card cta" },
       h("h2", { text: "Find out what is using your disk" }),
-      h("p", { class: "muted", text: `Deskveet will read file sizes in ${tilde(root) || "your home folder"}. Nothing leaves your Mac and nothing is changed.` }),
+      h("p", { class: "muted", text: `Deskveet will read file sizes in ${root === env.home ? "your home folder" : tilde(root)}. Nothing leaves your Mac and nothing is changed.` }),
       h("div", { class: "row center mt-3" },
         h("button", { class: "btn primary", text: "Scan now", onclick: () => void start(false) }),
         h("button", { class: "btn", text: "Choose another folder…", onclick: () => void choose() })));
@@ -212,8 +217,13 @@ export function storageView(): View {
 
   function fdaBanner() {
     if (!meta || !meta.protected_n) return null;
+    if (fda.get() === "granted") {
+      return h("div", { class: "banner info" },
+        h("span", { text: `Full Disk Access is on. Rescan to include the ${num(meta.protected_n)} folders macOS blocked last time.` }),
+        h("button", { class: "btn sm", text: "Rescan", onclick: () => void start(false) }));
+    }
     return h("div", { class: "banner fda" },
-      h("span", { text: `macOS blocked ${num(meta.protected_n)} folders (${meta.denied.slice(0, 3).map((d) => tilde(d)).join(", ")}…). Their size is missing from these totals.` }),
+      h("span", { text: `macOS blocked ${num(meta.protected_n)} folders, so their size is missing from these totals. ${FDA_HELP}` }),
       h("button", { class: "btn sm", text: "Open Full Disk Access settings", onclick: () => void api.openFda().catch((e) => toast(String(e), true)) }));
   }
 
@@ -222,14 +232,15 @@ export function storageView(): View {
     ro?.disconnect();
     const f = document.activeElement === search;
     box.replaceChildren();
-    sub.textContent = meta ? `${staleNote ? "Changed since the scan · " : ""}${tilde(meta.root)} · ${num(meta.files)} files · ${bytes(meta.bytes)} · scanned ${ago(meta.scanned_at)} in ${secs(meta.duration_ms)}` : tilde(root);
+    sub.textContent = meta ? `${staleNote ? "Changed since the scan · " : ""}${place(meta.root)} · ${num(meta.files)} files · ${bytes(meta.bytes)} · scanned ${ago(meta.scanned_at)} in ${secs(meta.duration_ms)}` : place(root);
     if (scanning()) box.append(progressCard());
     if (!meta || !data) { if (!scanning() && booted) box.append(empty()); return; }
     const rows = visibleRows();
     const fda = fdaBanner();
     if (fda) box.append(fda);
     box.append(
-      h("div", { class: "toolbar" }, crumbs(), search,
+      crumbs(),
+      h("div", { class: "toolbar" }, search,
         h("div", { class: "seg", role: "group", "aria-label": "View" },
           h("button", { text: "List", "aria-pressed": String(mode === "list"), onclick: () => { mode = "list"; store.set("st.mode", mode); render(); } }),
           h("button", { text: "Treemap", "aria-pressed": String(mode === "map"), onclick: () => { mode = "map"; store.set("st.mode", mode); render(); } }))),
@@ -248,16 +259,18 @@ export function storageView(): View {
       head.append(
         h("button", { class: "btn", text: "Choose folder…", onclick: () => void choose() }),
         h("button", { class: "btn primary", text: "Rescan", title: "⌘R, hold ⇧ for a full re-scan", onclick: (e: MouseEvent) => void start(e.shiftKey) }));
-      box = h("div");
+      box = h("div", { class: "stack" });
       rootEl.append(head, box);
       void Promise.all([
         api.listen<ScanProgress>("scan-progress", (p) => { progress = p; if (mounted) updateProgress(); }),
         api.listen<ScanDone>("scan-done", (d) => void onDone(d)),
       ]).then((u) => { unlisten.forEach((f) => f()); unlisten = u; });
+      unFda = fda.subscribe(() => render());
+      void fda.refresh();
       if (booted) render();
       else void boot().then(render).catch((e) => { booted = true; toast(String(e), true); render(); });
     },
-    unmount() { mounted = false; ro?.disconnect(); },
+    unmount() { mounted = false; ro?.disconnect(); unFda?.(); },
     find() { search?.focus(); search?.select(); },
     refresh(full) { void start(!!full); },
   };

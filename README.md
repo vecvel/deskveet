@@ -61,14 +61,23 @@ Measure it yourself: `scripts/measure.sh` (footprint of the app plus its WebKit 
 pnpm install
 pnpm tauri dev                 # run
 cd src-tauri && cargo test     # 54 tests, all against temp-dir fixtures with a fake system layer
-pnpm tauri build --bundles app # release .app (add dmg for a disk image); unsigned for now
+scripts/build.sh               # release .app + .dmg, signed with "Deskveet Development" if present
 ```
 
 Dev helpers in `src-tauri/examples/` run the real engine read-only (`cleanup_dry`, `scan_bench`,
 `artifacts_dry`) or against a throwaway file you create (`trash_smoke`, `artifact_smoke`).
 
-macOS asks for permission the first time an unsigned build reads Desktop, Documents or Downloads, and the
-Trash can only be listed with Full Disk Access (Deskveet links straight to that settings pane).
+macOS ties privacy permissions (Full Disk Access, Desktop/Documents access) to the app's code signature. An
+ad-hoc signed build looks like a new app every time, so a permission you granted to an earlier build
+silently stops applying. Create a free self-signed certificate once and `scripts/build.sh` will use it:
+
+1. Keychain Access → Certificate Assistant → Create a Certificate…
+2. Name `Deskveet Development`, Identity Type *Self-Signed Root*, Certificate Type *Code Signing* → Create.
+3. Run `scripts/build.sh`, then in System Settings → Privacy & Security → Full Disk Access remove Deskveet
+   with − and add the new build once. From then on it stays granted across rebuilds.
+
+Deskveet checks access live (`fda_status`) whenever the window comes back to the front, so the banners
+reflect the build that is actually running.
 
 ## Portability
 

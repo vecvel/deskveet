@@ -86,13 +86,13 @@ export function processesView(): View {
       body = h("tbody");
       const seg = h("div", { class: "seg", role: "group", "aria-label": "Sort" });
       const head = header("Processes", "", count);
-      root.append(head,
+      root.append(head, h("div", { class: "stack" },
         h("div", { class: "toolbar" }, search, seg),
         h("div", { class: "tbl-wrap" },
           h("table", { class: "tbl pr" },
             h("colgroup", {}, h("col"), h("col"), h("col"), h("col"), h("col")),
             h("thead", {}, h("tr", {}, th("name", "Name  ·  PID"), th("user", "User"), th("mem", "RAM", true), th("cpu", "CPU", true), h("th", {}))),
-            body)));
+            body))));
       const mk = (label: string, key: "mem" | "cpu") => h("button", { text: label, "aria-pressed": String(sortKey === key), onclick: () => {
         sortKey = key; sortDir = -1; seg.querySelectorAll("button").forEach((b) => b.setAttribute("aria-pressed", String(b === btn))); paintHead(); void view.tick!();
       } });
