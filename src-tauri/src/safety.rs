@@ -58,8 +58,35 @@ impl RuleMatcher {
     }
 }
 
+/// Project artifact folders (node_modules, target, build, ...): the folder name must match, a marker file
+/// must sit next to it, and it must be below a folder the user chose to scan.
+pub struct ArtifactMatcher {
+    dir_name: String,
+    markers: Vec<String>,
+    roots: Vec<PathBuf>,
+}
+
+impl ArtifactMatcher {
+    pub fn new(rule: &Rule, roots: &[PathBuf]) -> ArtifactMatcher {
+        ArtifactMatcher {
+            dir_name: rule.dir_name.clone().unwrap_or_default(),
+            markers: rule.markers.clone(),
+            roots: roots.iter().map(|r| r.canonicalize().unwrap_or_else(|_| r.clone())).collect(),
+        }
+    }
+
+    pub fn matches(&self, real: &Path) -> bool {
+        !self.dir_name.is_empty()
+            && real.file_name().is_some_and(|n| *n == *self.dir_name)
+            && std::fs::symlink_metadata(real).is_ok_and(|m| m.is_dir())
+            && self.roots.iter().any(|r| real.starts_with(r) && real != r)
+            && (self.markers.is_empty() || real.parent().is_some_and(|p| self.markers.iter().any(|m| p.join(m).exists())))
+    }
+}
+
 pub enum Allowed<'a> {
     Rule(&'a RuleMatcher),
+    Artifact(&'a ArtifactMatcher),
     UserPick,
 }
 
@@ -234,7 +261,7 @@ impl Safety {
 
     /// Returns the real path that may be acted on.
     pub fn check(&self, path: &Path, allowed: &Allowed) -> Result<PathBuf, Denied> {
-        let rule_mode = matches!(allowed, Allowed::Rule(_));
+        let rule_mode = matches!(allowed, Allowed::Rule(_)); // only glob rules may name /usr/local etc.
         // The blocklist always wins, on the spelling we were given and on the resolved path. The lexical
         // check comes first so `/` and friends are reported as protected rather than malformed.
         if path.is_absolute() {
@@ -250,6 +277,11 @@ impl Safety {
         }
         match allowed {
             Allowed::Rule(m) => {
+                if !m.matches(&real) {
+                    return Err(if m.matches(path) { Denied::Symlinked } else { Denied::NotAllowed });
+                }
+            }
+            Allowed::Artifact(m) => {
                 if !m.matches(&real) {
                     return Err(if m.matches(path) { Denied::Symlinked } else { Denied::NotAllowed });
                 }
@@ -449,5 +481,27 @@ mod tests {
             fs::create_dir_all(&p).unwrap();
             assert!(s.check(&p, &Allowed::Rule(&m)).is_err(), "{skip}");
         }
+    }
+
+    #[test]
+    fn artifact_matcher_requires_name_marker_and_chosen_root() {
+        let (_t, s) = fixture();
+        let h = s.home().to_path_buf();
+        let reg = Registry::macos().unwrap();
+        let rule = reg.get("artifact.node_modules").unwrap();
+        fs::create_dir_all(h.join("Projects/app/node_modules/x")).unwrap();
+        fs::write(h.join("Projects/app/package.json"), b"{}").unwrap();
+        fs::create_dir_all(h.join("Projects/lonely/node_modules")).unwrap();
+        let roots = vec![h.join("Projects")];
+        let m = ArtifactMatcher::new(rule, &roots);
+        let a = Allowed::Artifact(&m);
+        assert!(s.check(&h.join("Projects/app/node_modules"), &a).is_ok());
+        assert!(s.check(&h.join("Projects/lonely/node_modules"), &a).is_err(), "no package.json");
+        assert!(s.check(&h.join("Projects/app/node_modules/x"), &a).is_err(), "wrong folder name");
+        assert!(s.check(&h.join("Projects/app/package.json"), &a).is_err());
+        let other = ArtifactMatcher::new(rule, &[h.join("Documents")]);
+        assert!(s.check(&h.join("Projects/app/node_modules"), &Allowed::Artifact(&other)).is_err(), "outside the chosen roots");
+        let root_itself = ArtifactMatcher::new(rule, &[h.join("Projects/app/node_modules")]);
+        assert!(s.check(&h.join("Projects/app/node_modules"), &Allowed::Artifact(&root_itself)).is_err());
     }
 }

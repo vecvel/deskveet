@@ -70,6 +70,11 @@ export interface UndoEntry {
   path: string | null; trash_path: string | null; bytes: number; command: string[] | null; error: string | null; restored: boolean;
 }
 
+export interface ArtItem { id: string; rule_id: string; rule_name: string; dir: string; path: string; size: number; files: number; blocked: string | null }
+export interface Project { path: string; name: string; last_active: number; items: ArtItem[]; total: number; running: string[] }
+export interface ArtifactScan { roots: string[]; projects: Project[]; total: number; dirs: number }
+export interface ArtifactState { busy: boolean; default_roots: string[]; scan: ArtifactScan | null }
+
 const call = <T>(cmd: string, args?: Record<string, unknown>) => window.__TAURI__.core.invoke<T>(cmd, args);
 
 export const api = {
@@ -95,5 +100,7 @@ export const api = {
   undoRestore: (id: string) => call<string>("undo_restore", { id }),
   undoClear: () => call<void>("undo_clear"),
   openTrash: () => call<void>("open_trash"),
+  artifactState: () => call<ArtifactState>("artifact_state"),
+  artifactScan: (roots: string[]) => call<void>("artifact_scan", { roots }),
   listen: <T>(name: string, cb: (payload: T) => void) => window.__TAURI__.event.listen<T>(name, (e) => cb(e.payload)),
 };

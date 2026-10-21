@@ -4,6 +4,7 @@ import { ago, bytes, date, num, tilde } from "../fmt";
 import { openPreview } from "../preview";
 import { store } from "../store";
 import { openUndoLog } from "../undolog";
+import { artifactsView } from "./artifacts";
 import { header, View } from "./types";
 
 const ORDER = ["Developer", "Package managers", "Browsers", "App caches", "System"];
@@ -21,7 +22,23 @@ export function cleanupView(): View {
   let mounted = false;
   let unlisten: (() => void)[] = [];
   let raf = 0;
-  let box!: HTMLElement, sub!: HTMLElement, bar!: HTMLElement;
+  let box!: HTMLElement, sub!: HTMLElement, bar!: HTMLElement, abox!: HTMLElement;
+  let tab = store.get<"caches" | "artifacts">("cl.tab", "caches");
+  const art = artifactsView();
+  let artMounted = false;
+
+  function showTab() {
+    box.hidden = tab !== "caches";
+    abox.hidden = tab !== "artifacts";
+    bar.hidden = tab !== "caches" || selected.size === 0;
+    if (tab === "artifacts" && !artMounted) { art.mount(abox); artMounted = true; }
+    if (tab === "caches" && artMounted) { art.unmount?.(); abox.replaceChildren(); artMounted = false; }
+    if (tab === "caches" && booted && !results.length && !scanning) void rescan();
+    segBtns.forEach(([t, b]) => b.setAttribute("aria-pressed", String(t === tab)));
+    if (tab === "artifacts") sub.textContent = "Build folders in your projects";
+    else render();
+  }
+  const segBtns: [string, HTMLElement][] = [];
 
   const allItems = () => results.flatMap((r) => r.items);
   const selectable = (it: CItem) => !it.blocked;
@@ -34,7 +51,7 @@ export function cleanupView(): View {
     scanning = st.running;
     if (results.length) scannedAt = Date.now() / 1000;
     booted = true;
-    if (!results.length && !scanning) await rescan();
+    if (!results.length && !scanning && tab === "caches") await rescan();
   }
 
   async function rescan() {
@@ -168,6 +185,7 @@ export function cleanupView(): View {
         missing.length ? ` Not installed here: ${missing.map((m) => m.rule.name).join(", ")}.` : ""));
     }
     renderBar();
+    bar.hidden = tab !== "caches" || selected.size === 0;
   }
 
   const view: View = {
@@ -176,21 +194,30 @@ export function cleanupView(): View {
       sub = h("span", { class: "sub" });
       const head = header("Cleanup");
       head.querySelector(".sub")!.replaceWith(sub);
-      head.append(
+      const seg = h("div", { class: "seg", role: "group", "aria-label": "What to clean" });
+      segBtns.length = 0;
+      for (const [t, label] of [["caches", "Caches & tools"], ["artifacts", "Project artifacts"]] as const) {
+        const b = h("button", { text: label, onclick: () => { tab = t; store.set("cl.tab", t); showTab(); } });
+        segBtns.push([t, b]); seg.append(b);
+      }
+      head.append(seg,
         h("button", { class: "btn", text: "Undo log", onclick: () => void openUndoLog() }),
-        h("button", { class: "btn primary", text: "Rescan", title: "⌘R", onclick: () => void rescan() }));
+        h("button", { class: "btn primary", text: "Rescan", title: "⌘R", onclick: () => view.refresh!() }));
       box = h("div", { class: "cleanup" });
+      abox = h("div", { hidden: true });
       bar = h("div", { class: "actionbar", hidden: true });
-      root.append(head, box, bar);
+      artMounted = false;
+      root.append(head, box, abox, bar);
       void Promise.all([
         api.listen<RuleResult>("cleanup-rule", (rr) => upsert(rr)),
         api.listen<{ cancelled: boolean }>("cleanup-done", async () => { scanning = false; scannedAt = Date.now() / 1000; const st = await api.cleanupState(); if (st.results.length) results = st.results; render(); }),
       ]).then((u) => { unlisten.forEach((f) => f()); unlisten = u; });
-      if (booted) render();
-      else void boot().then(render).catch((e) => { booted = true; toast(String(e), true); render(); });
+      if (booted) { render(); showTab(); }
+      else void boot().then(() => { render(); showTab(); }).catch((e) => { booted = true; toast(String(e), true); render(); showTab(); });
     },
-    unmount() { mounted = false; cancelAnimationFrame(raf); raf = 0; },
-    refresh() { void rescan(); },
+    unmount() { mounted = false; cancelAnimationFrame(raf); raf = 0; if (artMounted) { art.unmount?.(); artMounted = false; } },
+    find() { if (tab === "artifacts") art.find?.(); },
+    refresh() { if (tab === "artifacts") art.refresh?.(); else void rescan(); },
   };
   return view;
 }

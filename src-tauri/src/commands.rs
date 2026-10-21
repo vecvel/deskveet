@@ -1,6 +1,6 @@
 //! The only surface the UI can call. Every command re-validates its inputs.
 
-use crate::cleaner::{Engine, Plan, Report, RuleResult, RunOpts};
+use crate::cleaner::{ArtifactScan, Engine, Plan, Report, RuleResult, RunOpts};
 use crate::platform::{self, Platform};
 use crate::rules::Registry;
 use crate::scan::{self, Ctx, Meta, Opts, Row};
@@ -33,10 +33,19 @@ pub struct AppState {
     running: Mutex<Option<Arc<Running>>>,
     engine: Arc<Engine>,
     results: Mutex<Arc<Vec<RuleResult>>>,
+    art_results: Mutex<Arc<Vec<RuleResult>>>,
+    art_scan: Mutex<Option<ArtifactScan>>,
     plans: Mutex<VecDeque<(String, Arc<Plan>)>>,
     /// A cleanup scan or run is in progress.
     cleaning: AtomicBool,
     clean_cancel: Arc<AtomicBool>,
+    /// Small UI preferences (last tab, folders, view modes). Kept here, not in the webview, so they
+    /// survive the window being released and recreated.
+    ui: Mutex<std::collections::HashMap<String, serde_json::Value>>,
+}
+
+fn ui_path() -> PathBuf {
+    platform::data_dir().join("ui-state.json")
 }
 
 fn real_engine() -> Engine {
@@ -53,9 +62,12 @@ impl AppState {
             running: Mutex::new(None),
             engine: Arc::new(real_engine()),
             results: Mutex::new(Arc::new(Vec::new())),
+            art_results: Mutex::new(Arc::new(Vec::new())),
+            art_scan: Mutex::new(None),
             plans: Mutex::new(VecDeque::new()),
             cleaning: AtomicBool::new(false),
             clean_cancel: Arc::new(AtomicBool::new(false)),
+            ui: Mutex::new(std::fs::read(ui_path()).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default()),
         }
     }
 
@@ -365,7 +377,8 @@ pub fn cleanup_plan(state: State<'_, AppState>, req: PlanReq) -> Result<Plan, St
     if state.cleaning.load(Relaxed) {
         return Err("Wait for the current scan or clean to finish.".into());
     }
-    let results = state.results.lock().unwrap().clone();
+    let mut results = state.results.lock().unwrap().as_ref().clone();
+    results.extend(state.art_results.lock().unwrap().iter().cloned());
     let plan = state.engine.plan(&results, &req.ids, &req.picks, req.dry_run);
     if plan.items.is_empty() {
         return Err("Nothing to clean.".into());
@@ -408,6 +421,8 @@ pub fn cleanup_run(app: AppHandle, state: State<'_, AppState>, req: RunReq) -> R
     if !report.dry_run {
         // what we scanned is out of date now, and so is the storage tree
         *state.results.lock().unwrap() = Arc::new(Vec::new());
+        *state.art_results.lock().unwrap() = Arc::new(Vec::new());
+        *state.art_scan.lock().unwrap() = None;
         *state.loaded.lock().unwrap() = None;
     }
     state.cleaning.store(false, Relaxed);
@@ -434,4 +449,104 @@ pub fn undo_clear(state: State<'_, AppState>) -> Result<(), String> {
 pub fn open_trash(state: State<'_, AppState>) -> Result<(), String> {
     let t = state.engine.trash_dir.clone();
     state.mon.lock().unwrap().plat().open(&t).map_err(|e| e.to_string())
+}
+
+// ───────────────────────────── project artifacts ─────────────────────────────
+
+#[derive(Serialize)]
+pub struct ArtifactState {
+    /// Some cleanup scan or clean (caches or artifacts) is in progress; only one runs at a time.
+    pub busy: bool,
+    pub default_roots: Vec<String>,
+    pub scan: Option<ArtifactScan>,
+}
+
+#[derive(Serialize, Clone)]
+struct ArtifactProgress {
+    dirs: u64,
+}
+
+#[tauri::command(async)]
+pub fn artifact_state(state: State<'_, AppState>) -> ArtifactState {
+    let home = state.engine.home().to_path_buf();
+    let default_roots = ["Desktop", "Documents", "development", "Developer", "Projects", "dev", "code", "src", "work", "repos"]
+        .iter()
+        .map(|d| home.join(d))
+        .filter(|p| p.is_dir())
+        .map(|p| p.to_string_lossy().into_owned())
+        .collect();
+    ArtifactState { busy: state.cleaning.load(Relaxed), default_roots, scan: state.art_scan.lock().unwrap().clone() }
+}
+
+/// Look for build folders below the folders the user chose. Result arrives as `artifact-done`.
+#[tauri::command(async)]
+pub fn artifact_scan(app: AppHandle, state: State<'_, AppState>, roots: Vec<String>) -> Result<(), String> {
+    let home = state.engine.home().to_path_buf();
+    let roots: Vec<PathBuf> = roots
+        .iter()
+        .map(PathBuf::from)
+        .filter(|r| r.is_absolute() && r.is_dir())
+        .filter(|r| r.canonicalize().map(|c| c.starts_with(&home) || c.starts_with("/Volumes")).unwrap_or(false))
+        .collect();
+    if roots.is_empty() {
+        return Err("Pick at least one folder inside your home folder or on an external volume.".into());
+    }
+    if state.cleaning.swap(true, Relaxed) {
+        return Err("Cleanup is already busy.".into());
+    }
+    state.clean_cancel.store(false, Relaxed);
+    let eng = state.engine.clone();
+    let cancel = state.clean_cancel.clone();
+    std::thread::Builder::new()
+        .name("artifact-scan".into())
+        .spawn(move || {
+            let seen = Arc::new(std::sync::atomic::AtomicU64::new(0));
+            let finished = Arc::new(AtomicBool::new(false));
+            let ticker = {
+                let (app, seen, finished) = (app.clone(), seen.clone(), finished.clone());
+                std::thread::spawn(move || {
+                    while !finished.load(Relaxed) {
+                        let _ = app.emit("artifact-progress", ArtifactProgress { dirs: seen.load(Relaxed) });
+                        std::thread::sleep(Duration::from_millis(150));
+                    }
+                })
+            };
+            let (scan, results) = eng.find_artifacts(&roots, &cancel, &seen);
+            finished.store(true, Relaxed);
+            let _ = ticker.join();
+            let st = app.state::<AppState>();
+            if !cancel.load(Relaxed) {
+                *st.art_results.lock().unwrap() = Arc::new(results);
+                *st.art_scan.lock().unwrap() = Some(scan.clone());
+            }
+            st.cleaning.store(false, Relaxed);
+            let _ = app.emit("artifact-done", scan);
+            platform::trim_memory();
+        })
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+// ───────────────────────────── UI state ─────────────────────────────
+
+#[tauri::command(async)]
+pub fn ui_get_all(state: State<'_, AppState>) -> std::collections::HashMap<String, serde_json::Value> {
+    state.ui.lock().unwrap().clone()
+}
+
+#[tauri::command(async)]
+pub fn ui_set(state: State<'_, AppState>, key: String, value: serde_json::Value) {
+    if key.len() > 64 || !key.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-')) {
+        return;
+    }
+    let mut ui = state.ui.lock().unwrap();
+    ui.insert(key, value);
+    let path = ui_path();
+    if let Some(d) = path.parent() {
+        let _ = std::fs::create_dir_all(d);
+    }
+    let tmp = path.with_extension("json.tmp");
+    if std::fs::write(&tmp, serde_json::to_vec(&*ui).unwrap_or_default()).is_ok() {
+        let _ = std::fs::rename(tmp, path);
+    }
 }

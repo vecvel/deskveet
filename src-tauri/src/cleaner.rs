@@ -5,7 +5,7 @@
 
 use crate::fsutil::{self, Measure};
 use crate::rules::{Kind, Method, Registry, Risk, Rule};
-use crate::safety::{Allowed, RuleMatcher, Safety};
+use crate::safety::{Allowed, ArtifactMatcher, RuleMatcher, Safety};
 use crate::sys::{ProcInfo, Sys};
 use crate::undo::{Entry, UndoLog};
 use rayon::prelude::*;
@@ -16,7 +16,7 @@ use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering::Relaxed};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 // ───────────────────────────── data model ─────────────────────────────
 
@@ -165,7 +165,55 @@ pub struct Engine {
     pub sys: Arc<dyn Sys>,
     pub trash_dir: PathBuf,
     pub undo: UndoLog,
+    /// Folders the user chose for the artifact finder; artifact items are only valid below these.
+    art_roots: Mutex<Vec<PathBuf>>,
     me: u32,
+}
+
+/// Whichever matcher a rule needs.
+enum Guard {
+    Glob(RuleMatcher),
+    Art(ArtifactMatcher),
+}
+
+impl Guard {
+    fn allowed(&self) -> Allowed<'_> {
+        match self {
+            Guard::Glob(m) => Allowed::Rule(m),
+            Guard::Art(m) => Allowed::Artifact(m),
+        }
+    }
+}
+
+#[derive(Serialize, Clone, Debug)]
+pub struct ArtItem {
+    pub id: String,
+    pub rule_id: String,
+    pub rule_name: String,
+    pub dir: String,
+    pub path: String,
+    pub size: u64,
+    pub files: u64,
+    pub blocked: Option<String>,
+}
+
+#[derive(Serialize, Clone, Debug)]
+pub struct Project {
+    pub path: String,
+    pub name: String,
+    /// Newest change among the project's own files (artifact folders excluded), unix seconds.
+    pub last_active: i64,
+    pub items: Vec<ArtItem>,
+    pub total: u64,
+    pub running: Vec<String>,
+}
+
+#[derive(Serialize, Clone, Debug)]
+pub struct ArtifactScan {
+    pub roots: Vec<String>,
+    pub projects: Vec<Project>,
+    pub total: u64,
+    pub dirs: u64,
 }
 
 fn sv<const N: usize>(a: [&str; N]) -> Vec<String> {
@@ -196,6 +244,59 @@ fn running_matches(procs: &[ProcInfo], tokens: &[String], me: u32) -> Vec<String
         .collect()
 }
 
+/// Directories never descended into while looking for projects.
+const SKIP_DIRS: &[&str] = &[".git", "Library", ".Trash", "node_modules", ".npm", ".cache", "Applications", ".cargo", ".rustup", ".pub-cache", ".gradle", ".android", ".nvm", ".docker"];
+const MAX_DEPTH: usize = 9;
+
+fn walk_artifacts(dir: &Path, depth: usize, rules: &[&Rule], cancel: &AtomicBool, seen: &std::sync::atomic::AtomicU64) -> Vec<(usize, PathBuf)> {
+    if cancel.load(Relaxed) || depth > MAX_DEPTH {
+        return Vec::new();
+    }
+    seen.fetch_add(1, Relaxed);
+    let Ok(rd) = fs::read_dir(dir) else { return Vec::new() };
+    let mut found = Vec::new();
+    let mut descend = Vec::new();
+    for e in rd.flatten() {
+        let Ok(ft) = e.file_type() else { continue };
+        if !ft.is_dir() {
+            continue; // symlinks are not followed
+        }
+        let name = e.file_name().to_string_lossy().into_owned();
+        let mut matched = false;
+        for (i, r) in rules.iter().enumerate() {
+            if r.dir_name.as_deref() == Some(name.as_str()) && (r.markers.is_empty() || r.markers.iter().any(|m| dir.join(m).exists())) {
+                found.push((i, e.path()));
+                matched = true;
+                break; // one rule per folder
+            }
+        }
+        if !matched && !SKIP_DIRS.contains(&name.as_str()) {
+            descend.push(e.path());
+        }
+    }
+    found.extend(descend.par_iter().flat_map(|d| walk_artifacts(d, depth + 1, rules, cancel, seen)).collect::<Vec<_>>());
+    found
+}
+
+/// Newest change among the project's files, ignoring the artifact folders themselves.
+fn project_activity(project: &Path, artifact_dirs: &[&str]) -> i64 {
+    use std::os::unix::fs::MetadataExt;
+    let Ok(rd) = fs::read_dir(project) else { return 0 };
+    let mut newest = 0;
+    for e in rd.flatten().take(400) {
+        if artifact_dirs.contains(&e.file_name().to_string_lossy().as_ref()) {
+            continue;
+        }
+        if let Ok(m) = e.metadata() {
+            newest = newest.max(m.mtime());
+        }
+    }
+    if newest == 0 {
+        newest = fs::metadata(project).map(|m| m.mtime()).unwrap_or(0);
+    }
+    newest
+}
+
 fn random_token() -> String {
     use std::hash::{BuildHasher, Hasher};
     let mut h = std::collections::hash_map::RandomState::new().build_hasher();
@@ -205,7 +306,7 @@ fn random_token() -> String {
 
 impl Engine {
     pub fn new(reg: Registry, home: PathBuf, sys: Arc<dyn Sys>, trash_dir: PathBuf, undo_path: PathBuf) -> Engine {
-        Engine { reg: Arc::new(reg), safety: Safety::new(home), sys, trash_dir, undo: UndoLog::new(undo_path), me: std::process::id() }
+        Engine { reg: Arc::new(reg), safety: Safety::new(home), sys, trash_dir, undo: UndoLog::new(undo_path), art_roots: Mutex::new(Vec::new()), me: std::process::id() }
     }
 
     pub fn home(&self) -> &Path {
@@ -221,6 +322,14 @@ impl Engine {
 
     fn matcher(&self, rule: &Rule) -> RuleMatcher {
         RuleMatcher::new(rule, self.home())
+    }
+
+    fn guard(&self, rule: &Rule) -> Guard {
+        if rule.kind == Kind::Artifact {
+            Guard::Art(ArtifactMatcher::new(rule, &self.art_roots.lock().unwrap()))
+        } else {
+            Guard::Glob(self.matcher(rule))
+        }
     }
 
     fn rule_paths(&self, rule: &Rule) -> Vec<PathBuf> {
@@ -438,6 +547,67 @@ impl Engine {
         Ok(vec![it])
     }
 
+    // ── project build artifacts ──
+
+    /// Find artifact folders below `roots`. Results are remembered so a plan can refer to them by id.
+    pub fn find_artifacts(&self, roots: &[PathBuf], cancel: &AtomicBool, dirs_seen: &std::sync::atomic::AtomicU64) -> (ArtifactScan, Vec<RuleResult>) {
+        let roots: Vec<PathBuf> = roots.iter().filter_map(|r| r.canonicalize().ok()).filter(|r| r.is_dir()).collect();
+        *self.art_roots.lock().unwrap() = roots.clone();
+        let rules: Vec<&Rule> = self.reg.rules.iter().filter(|r| r.kind == Kind::Artifact).collect();
+        let procs = self.sys.processes();
+        let found: Vec<(usize, PathBuf)> = self.pool(|| {
+            roots.par_iter().flat_map(|r| walk_artifacts(r, 0, &rules, cancel, dirs_seen)).collect()
+        });
+        let guards: Vec<ArtifactMatcher> = rules.iter().map(|r| ArtifactMatcher::new(r, &roots)).collect();
+        let measured: Vec<(usize, PathBuf, Measure)> = self.pool(|| found.into_par_iter().map(|(i, p)| { let m = fsutil::measure(&p); (i, p, m) }).collect());
+
+        let mut by_project: std::collections::BTreeMap<PathBuf, Vec<ArtItem>> = Default::default();
+        let mut per_rule: Vec<Vec<Item>> = rules.iter().map(|_| Vec::new()).collect();
+        for (i, p, m) in measured {
+            if m.files == 0 && m.bytes == 0 {
+                continue;
+            }
+            let rule = rules[i];
+            let blocked = self.safety.check(&p, &Allowed::Artifact(&guards[i])).err().map(|e| e.to_string());
+            let id = format!("{}|{}", rule.id, p.to_string_lossy());
+            let dir = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+            let project = p.parent().map(Path::to_path_buf).unwrap_or_default();
+            by_project.entry(project).or_default().push(ArtItem { id: id.clone(), rule_id: rule.id.clone(), rule_name: rule.name.clone(), dir: dir.clone(), path: p.to_string_lossy().into_owned(), size: m.bytes, files: m.files, blocked: blocked.clone() });
+            per_rule[i].push(Item { id, rule_id: rule.id.clone(), label: dir, path: Some(p.to_string_lossy().into_owned()), size: m.bytes, files: m.files, mtime: m.mtime, blocked, ..Default::default() });
+        }
+        let mut projects: Vec<Project> = by_project
+            .into_iter()
+            .map(|(path, mut items)| {
+                items.sort_by(|a, b| b.size.cmp(&a.size));
+                let total = items.iter().filter(|i| i.blocked.is_none()).map(|i| i.size).sum();
+                let names: Vec<&str> = items.iter().map(|i| i.dir.as_str()).collect();
+                let mut running = Vec::new();
+                for it in &items {
+                    if let Some(r) = self.reg.get(&it.rule_id) {
+                        for b in running_matches(&procs, &r.busy, self.me) {
+                            if !running.contains(&b) {
+                                running.push(b);
+                            }
+                        }
+                    }
+                }
+                Project { name: path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(), last_active: project_activity(&path, &names), path: path.to_string_lossy().into_owned(), items, total, running }
+            })
+            .collect();
+        projects.sort_by(|a, b| b.total.cmp(&a.total));
+        let total = projects.iter().map(|p| p.total).sum();
+        let results: Vec<RuleResult> = rules
+            .iter()
+            .zip(per_rule)
+            .map(|(r, mut items)| {
+                items.sort_by(|a, b| b.size.cmp(&a.size));
+                RuleResult { rule: (*r).into(), available: true, note: None, total: items.iter().filter(|i| i.blocked.is_none()).map(|i| i.size).sum(), items, running: Vec::new() }
+            })
+            .collect();
+        let scan = ArtifactScan { roots: roots.iter().map(|r| r.to_string_lossy().into_owned()).collect(), projects, total, dirs: dirs_seen.load(Relaxed) };
+        (scan, results)
+    }
+
     // ── planning (the preview) ──
 
     fn build_argv(rule: &Rule, extra: &Option<String>) -> Result<Vec<String>, String> {
@@ -510,8 +680,8 @@ impl Engine {
 
         // 1. path safety, re-checked now (the item may be old)
         if let Some(p) = item.path.as_deref().map(Path::new).filter(|_| !is_trash_rule) {
-            let m = self.matcher(rule);
-            match self.safety.check(p, &Allowed::Rule(&m)) {
+            let g = self.guard(rule);
+            match self.safety.check(p, &g.allowed()) {
                 Ok(real) => pi.real = Some(real),
                 Err(e) => pi.blocked = pi.blocked.or(Some(e.to_string())),
             }
@@ -699,9 +869,9 @@ impl Engine {
             Method::Trash => {
                 let real = it.real.as_ref().ok_or("no verified path")?;
                 // Last look: the path must still pass the gate, exactly as at preview time.
-                let matcher = rule.map(|r| self.matcher(r));
-                let allowed = match (&it.source, &matcher) {
-                    (Some(Source::Rule(_)), Some(m)) => Allowed::Rule(m),
+                let guard = rule.map(|r| self.guard(r));
+                let allowed = match (&it.source, &guard) {
+                    (Some(Source::Rule(_)), Some(g)) => g.allowed(),
                     _ => Allowed::UserPick,
                 };
                 let real_now = self.safety.check(real, &allowed).map_err(|d| d.to_string())?;
@@ -1211,5 +1381,92 @@ mod tests {
         let rep = run(&f, &plan, &RunOpts::default());
         assert_eq!(rep.ok, 0);
         assert!(f.home.join("Documents/B-2/x").exists(), "Documents untouched");
+    }
+
+    fn art_scan(f: &Fx) -> (ArtifactScan, Vec<RuleResult>) {
+        let seen = std::sync::atomic::AtomicU64::new(0);
+        f.eng.find_artifacts(&[f.home.join("dev")], &AtomicBool::new(false), &seen)
+    }
+
+    fn make_projects(f: &Fx) -> PathBuf {
+        let d = f.home.join("dev");
+        put(&d.join("web/package.json"), 10);
+        put(&d.join("web/node_modules/lib/index.js"), 300_000);
+        put(&d.join("web/node_modules/lib/node_modules/inner/x.js"), 100_000); // nested: never listed separately
+        put(&d.join("web/src/app.js"), 10);
+        put(&d.join("engine/Cargo.toml"), 10);
+        put(&d.join("engine/target/debug/bin"), 400_000);
+        put(&d.join("mobile/pubspec.yaml"), 10);
+        put(&d.join("mobile/build/app.apk"), 200_000);
+        put(&d.join("mobile/.dart_tool/x"), 50_000);
+        put(&d.join("notes/build/readme.txt"), 100_000); // `build` without a marker: not an artifact
+        put(&d.join("web/.git/objects/pack"), 100_000);
+        put(&d.join("web/.git/node_modules/trap/x"), 100_000); // inside .git: never visited
+        d
+    }
+
+    #[test]
+    fn artifact_finder_groups_by_project_and_needs_marker_files() {
+        let f = fx();
+        make_projects(&f);
+        let (scan, results) = art_scan(&f);
+        let names: Vec<&str> = scan.projects.iter().map(|p| p.name.as_str()).collect();
+        assert!(names.contains(&"web") && names.contains(&"engine") && names.contains(&"mobile"));
+        assert!(!names.contains(&"notes"), "build/ without a marker is not an artifact");
+        let web = scan.projects.iter().find(|p| p.name == "web").unwrap();
+        assert_eq!(web.items.len(), 1, "nested node_modules and .git contents are not separate items");
+        assert!(web.items[0].size >= 400_000, "nested folder is counted inside its parent");
+        let mobile = scan.projects.iter().find(|p| p.name == "mobile").unwrap();
+        let rules: HashSet<&str> = mobile.items.iter().map(|i| i.rule_id.as_str()).collect();
+        assert_eq!(rules, HashSet::from(["artifact.flutter_build", "artifact.dart_tool"]));
+        assert!(scan.projects.windows(2).all(|w| w[0].total >= w[1].total));
+        assert!(results.iter().any(|r| r.rule.id == "artifact.rust_target" && r.items.len() == 1));
+        assert!(scan.projects.iter().all(|p| p.last_active > 0));
+    }
+
+    #[test]
+    fn artifact_items_go_to_trash_through_the_same_plan_and_undo_log() {
+        let f = fx();
+        let d = make_projects(&f);
+        let (_scan, results) = art_scan(&f);
+        let all: Vec<String> = results.iter().flat_map(|r| r.items.iter().map(|i| i.id.clone())).collect();
+        let plan = f.eng.plan(&results, &all, &[], false);
+        assert!(plan.items.iter().all(|i| i.blocked.is_none()), "{:?}", plan.items.iter().map(|i| &i.blocked).collect::<Vec<_>>());
+        let rep = run(&f, &plan, &RunOpts::default());
+        assert_eq!((rep.failed, rep.skipped), (0, 0));
+        assert!(!d.join("web/node_modules").exists() && !d.join("engine/target").exists() && !d.join("mobile/build").exists());
+        assert!(d.join("web/src/app.js").exists() && d.join("web/package.json").exists() && d.join("notes/build/readme.txt").exists());
+        assert!(d.join("web/.git/objects/pack").exists());
+        assert!(f.eng.undo.list().iter().all(|e| e.action == "trash" && e.trash_path.is_some()));
+    }
+
+    #[test]
+    fn artifact_plan_is_refused_when_the_marker_disappears_or_it_is_outside_the_chosen_roots() {
+        let f = fx();
+        let d = make_projects(&f);
+        let (_s, results) = art_scan(&f);
+        let nm = results.iter().flat_map(|r| &r.items).find(|i| i.label == "node_modules").unwrap().id.clone();
+        fs::remove_file(d.join("web/package.json")).unwrap();
+        let plan = f.eng.plan(&results, &[nm.clone()], &[], false);
+        assert!(plan.items[0].blocked.is_some(), "no package.json next to it any more");
+        assert_eq!(run(&f, &plan, &RunOpts::default()).skipped, 1);
+        assert!(d.join("web/node_modules").exists());
+        // a later scan of another folder invalidates items from the old one
+        put(&d.join("web/package.json"), 10);
+        f.eng.find_artifacts(&[f.home.join("Desktop")], &AtomicBool::new(false), &std::sync::atomic::AtomicU64::new(0));
+        let plan = f.eng.plan(&results, &[nm], &[], false);
+        assert!(plan.items[0].blocked.is_some(), "outside the scanned roots");
+    }
+
+    #[test]
+    fn running_node_needs_confirmation_for_node_modules() {
+        let f = fx();
+        make_projects(&f);
+        f.sys.procs.lock().unwrap().push(proc("node"));
+        let (scan, results) = art_scan(&f);
+        assert!(scan.projects.iter().any(|p| p.running.contains(&"node".to_string())));
+        let nm = results.iter().flat_map(|r| &r.items).find(|i| i.label == "node_modules").unwrap().id.clone();
+        let plan = f.eng.plan(&results, &[nm], &[], false);
+        assert!(plan.items[0].confirm.iter().any(|c| c.contains("node is running")));
     }
 }

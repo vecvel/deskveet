@@ -98,5 +98,7 @@ addEventListener("keydown", (e) => {
 });
 addEventListener("contextmenu", (e) => e.preventDefault());
 
-const last = store.get("tab", "overview");
-show(TABS.some((t) => t.id === last) ? last : "overview");
+void store.load().then(() => {
+  const last = store.get("tab", "overview");
+  show(TABS.some((t) => t.id === last) ? last : "overview");
+});

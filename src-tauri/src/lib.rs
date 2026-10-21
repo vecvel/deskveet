@@ -54,6 +54,10 @@ pub fn run() {
             commands::undo_restore,
             commands::undo_clear,
             commands::open_trash,
+            commands::ui_get_all,
+            commands::ui_set,
+            commands::artifact_state,
+            commands::artifact_scan,
         ])
         // A destroyed window means the WebKit helper processes are gone; drop our caches too.
         .on_window_event(|w, e| {
