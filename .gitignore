@@ -5,3 +5,9 @@ src-tauri/gen/
 .DS_Store
 *.log
 dev/
+
+# fastlane
+fastlane/.env
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/test_output/

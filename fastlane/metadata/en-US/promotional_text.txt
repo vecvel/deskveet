@@ -1,0 +1,1 @@
+Finds the caches your tools keep filling your disk with, tells you what each one is, and only moves it to the Trash after you look.

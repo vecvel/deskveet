@@ -78,7 +78,7 @@ temporary folders, never your own.
 
 Deskveet has no network code, no telemetry and no accounts. Its content security policy blocks every connection
 and none of its dependencies opens a socket. Cleanup tools you choose to run, such as `brew` or `npm`, are
-separate programs and behave as they always do.
+separate programs and behave as they always do. The full [privacy policy](PRIVACY.md) lists the few files Deskveet keeps on your Mac.
 
 ## Install
 
@@ -109,6 +109,18 @@ If you have no Developer ID, a free self-signed certificate works for your own b
 1. Open Keychain Access, then Certificate Assistant, then Create a Certificate.
 2. Name it `Deskveet Development`, Identity Type *Self-Signed Root*, Certificate Type *Code Signing*.
 3. Build, then remove and re-add Deskveet once under Privacy & Security, Full Disk Access.
+
+### Fastlane
+
+The same steps are available as [fastlane](https://fastlane.tools) lanes (`brew install fastlane`). Copy
+`fastlane/.env.example` to `fastlane/.env` and fill in your App Store Connect API key first.
+
+```bash
+fastlane mac build            # universal app and disk image, signed and notarised when the key is set
+fastlane mac notarize_dmg     # notarise and staple the disk image too
+fastlane mac release          # tag the version and push it, GitHub Actions publishes the release
+fastlane mac store_metadata   # upload the App Store text and the screenshots in assets/store-listing
+```
 
 ### Releases
 

@@ -1,0 +1,4 @@
+# Bundle id from src-tauri/tauri.conf.json. The team comes from the signing certificate, or set
+# FASTLANE_TEAM_ID / APPLE_TEAM_ID in fastlane/.env.
+app_identifier("app.deskveet.desktop")
+team_id(ENV["APPLE_TEAM_ID"]) if ENV["APPLE_TEAM_ID"]

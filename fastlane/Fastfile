@@ -1,0 +1,72 @@
+# Deskveet lanes. Run from the project root, for example: fastlane mac build
+#
+# build           universal .app and .dmg via scripts/build.sh (signed with your Developer ID when it is in the keychain;
+#                 also notarised when the APPLE_API_* variables are set)
+# notarize_dmg    notarise and staple the .dmg as well, so the disk image opens without a warning offline
+# release         tag the version in tauri.conf.json and push the tag; GitHub Actions builds and publishes it
+# store_metadata  upload the App Store text (fastlane/metadata) and screenshots (assets/store-listing) to App Store
+#                 Connect, without a binary and without submitting for review
+
+require "json"
+
+default_platform(:mac)
+
+ROOT = File.expand_path("..", __dir__)
+BUNDLE = File.join(ROOT, "src-tauri/target/universal-apple-darwin/release/bundle")
+
+def app_version
+  JSON.parse(File.read(File.join(ROOT, "src-tauri/tauri.conf.json")))["version"]
+end
+
+def api_key
+  %w[APPLE_API_KEY_ID APPLE_API_ISSUER APPLE_API_KEY_PATH].each do |v|
+    UI.user_error!("#{v} is not set. Copy fastlane/.env.example to fastlane/.env and fill it in.") if ENV[v].to_s.empty?
+  end
+  app_store_connect_api_key(
+    key_id: ENV["APPLE_API_KEY_ID"],
+    issuer_id: ENV["APPLE_API_ISSUER"],
+    key_filepath: ENV["APPLE_API_KEY_PATH"],
+  )
+end
+
+platform :mac do
+  desc "Build the universal app and disk image"
+  lane :build do
+    # Tauri reads APPLE_API_KEY (the key id), APPLE_API_ISSUER and APPLE_API_KEY_PATH to notarise the app.
+    ENV["APPLE_API_KEY"] ||= ENV["APPLE_API_KEY_ID"]
+    sh("cd #{ROOT.shellescape} && scripts/build.sh")
+  end
+
+  desc "Notarise and staple the disk image"
+  lane :notarize_dmg do
+    dmg = Dir[File.join(BUNDLE, "dmg/*.dmg")].max_by { |f| File.mtime(f) }
+    UI.user_error!("No .dmg found. Run `fastlane mac build` first.") unless dmg
+    notarize(package: dmg, api_key: api_key, print_log: true)
+  end
+
+  desc "Tag the current version and push the tag (GitHub Actions publishes the release)"
+  lane :release do
+    ensure_git_status_clean
+    tag = "v#{app_version}"
+    UI.user_error!("Tag #{tag} already exists. Bump the version in tauri.conf.json, Cargo.toml and package.json first.") if git_tag_exists(tag: tag)
+    add_git_tag(tag: tag, message: "Deskveet #{app_version}")
+    push_git_tags(tag: tag)
+    UI.success("Pushed #{tag}. Follow the build at https://github.com/vecvel/deskveet/actions")
+  end
+
+  desc "Upload the App Store listing text and screenshots"
+  lane :store_metadata do
+    deliver(
+      api_key: api_key,
+      platform: "osx",
+      app_version: app_version,
+      metadata_path: File.join(ROOT, "fastlane/metadata"),
+      screenshots_path: File.join(ROOT, "assets/store-listing"),
+      skip_binary_upload: true,
+      overwrite_screenshots: true,
+      submit_for_review: false,
+      run_precheck_before_submit: false,
+      force: true,
+    )
+  end
+end
