@@ -1,0 +1,46 @@
+[package]
+name = "deskveet"
+version = "0.1.0"
+description = "Light, fast, privacy-first disk & system cleanup"
+edition = "2021"
+rust-version = "1.85"
+resolver = "3"
+publish = false
+
+[lib]
+name = "deskveet_lib"
+path = "src/lib.rs"
+
+[[bin]]
+name = "deskveet"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", default-features = false, features = [] }
+
+[dependencies]
+# Offline only: nothing below opens a socket. `custom-protocol` is added by `tauri build`.
+tauri = { version = "2", default-features = false, features = ["wry", "compression"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sysinfo = { version = "0.36", default-features = false, features = ["system", "disk", "user"] }
+libc = "0.2"
+
+[features]
+custom-protocol = ["tauri/custom-protocol"]
+
+[dev-dependencies]
+tempfile = "3"
+
+# Size/RAM first: this is the whole point of the app.
+[profile.release]
+opt-level = "z"
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = true
+debug = false
+incremental = false
+
+[profile.dev]
+debug = 0

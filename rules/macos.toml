@@ -1,0 +1,571 @@
+# Deskveet rule registry — macOS
+#
+# schema_version  bump when the field set changes (the loader rejects unknown versions)
+# rules_version   content version of this file
+#
+# Rule fields
+#   id              unique, dotted, stable (used by the undo log)
+#   name            display name
+#   category        Developer | Browsers | App caches | System | Package managers | Project build artifacts
+#   kind            path (default)  - globs below are expanded; each match is one item
+#                   tool            - only a tool command; size comes from `paths` (optional)
+#                   dynamic         - items produced by code (`dynamic = "..."`)
+#                   artifact        - project artifact finder (`dir_name` + `markers`)
+#   paths           globs; `~` is the home folder. A trailing `/*` means "each child is an item".
+#   exclude         globs removed from the matches (avoids double counting)
+#   detect          optional shell test; the rule is hidden when it exits non-zero
+#   risk            safe | review | caution
+#   description     what happens if you delete it
+#   regenerates     how it comes back
+#   method          trash (default) | tool | erase
+#   tool            argv list used when method = "tool"
+#   busy            process names; if any is running the rule is blocked until the user confirms
+#   opt_in          true = never selected by "clean all safe", needs explicit opt-in
+#   needs_admin     true = Deskveet never runs it, it shows the command instead
+#   stale_days      default age for artifact / project rules
+
+schema_version = 1
+rules_version = "2026.10.1"
+
+# ───────────────────────────── Developer: Xcode ─────────────────────────────
+
+[[rule]]
+id = "xcode.derived_data"
+name = "Xcode DerivedData"
+category = "Developer"
+paths = ["~/Library/Developer/Xcode/DerivedData/*"]
+risk = "safe"
+description = "Deletes build products and indexes for every project you have built. The next build is a full rebuild and Xcode re-indexes."
+regenerates = "Rebuilt automatically the next time you build or open the project."
+method = "trash"
+busy = ["Xcode", "xcodebuild", "SourceKitService"]
+
+[[rule]]
+id = "xcode.archives"
+name = "Xcode Archives"
+category = "Developer"
+paths = ["~/Library/Developer/Xcode/Archives/*"]
+risk = "caution"
+description = "Deletes archived app builds, including the dSYM files used to symbolicate crash reports for versions you shipped. You will not be able to re-export or symbolicate those builds."
+regenerates = "Not regenerable. Only re-archiving from the same source commit recreates an equivalent archive."
+method = "trash"
+busy = ["Xcode"]
+
+[[rule]]
+id = "xcode.ios_device_support"
+name = "iOS DeviceSupport"
+category = "Developer"
+paths = [
+  "~/Library/Developer/Xcode/iOS DeviceSupport/*",
+  "~/Library/Developer/Xcode/watchOS DeviceSupport/*",
+  "~/Library/Developer/Xcode/tvOS DeviceSupport/*",
+]
+risk = "review"
+description = "Deletes the debug symbols Xcode copied from physical devices. The next time you connect that device Xcode copies the symbols again, which takes several minutes."
+regenerates = "Re-created when you connect the device and Xcode prepares it for debugging."
+method = "trash"
+busy = ["Xcode"]
+
+[[rule]]
+id = "xcode.xctest_devices"
+name = "XCTest devices"
+category = "Developer"
+paths = ["~/Library/Developer/XCTestDevices/*"]
+risk = "safe"
+description = "Deletes cloned simulators created for parallel UI testing."
+regenerates = "Cloned again on the next parallel test run."
+method = "trash"
+busy = ["Xcode", "xcodebuild"]
+
+[[rule]]
+id = "xcode.app_cache"
+name = "Xcode caches"
+category = "Developer"
+paths = ["~/Library/Caches/com.apple.dt.Xcode/*", "~/Library/Developer/Xcode/UserData/Previews/*"]
+risk = "safe"
+description = "Deletes Xcode's download and preview caches."
+regenerates = "Rebuilt on demand."
+method = "trash"
+busy = ["Xcode"]
+
+# ───────────────────────────── Developer: Simulators ─────────────────────────────
+
+[[rule]]
+id = "simulators.unavailable"
+name = "Unavailable simulators"
+category = "Developer"
+kind = "tool"
+paths = []
+detect = "xcrun --find simctl"
+risk = "safe"
+description = "Removes simulator devices whose runtime is no longer installed. They cannot boot anyway."
+regenerates = "Not needed; they are orphaned."
+method = "tool"
+tool = ["xcrun", "simctl", "delete", "unavailable"]
+
+[[rule]]
+id = "simulators.devices"
+name = "Simulator devices"
+category = "Developer"
+kind = "dynamic"
+dynamic = "simctl_devices"
+paths = ["~/Library/Developer/CoreSimulator/Devices/*"]
+detect = "xcrun --find simctl"
+risk = "review"
+description = "Deletes the selected simulator device including its installed apps and data. A booted device is never touched."
+regenerates = "Create a new device in Xcode > Window > Devices and Simulators."
+method = "tool"
+tool = ["xcrun", "simctl", "delete", "<udid>"]
+busy = ["Simulator"]
+
+[[rule]]
+id = "simulators.runtimes"
+name = "Simulator runtimes"
+category = "Developer"
+kind = "dynamic"
+dynamic = "simctl_runtimes"
+paths = []
+detect = "xcrun --find simctl"
+risk = "review"
+description = "Deletes an installed simulator runtime (several GB each). Devices that use it become unavailable."
+regenerates = "Re-download from Xcode > Settings > Components."
+method = "tool"
+tool = ["xcrun", "simctl", "runtime", "delete", "<id>"]
+busy = ["Simulator"]
+
+[[rule]]
+id = "simulators.caches"
+name = "CoreSimulator caches"
+category = "Developer"
+paths = ["~/Library/Developer/CoreSimulator/Caches/*"]
+risk = "safe"
+description = "Deletes dyld and image caches used to speed up simulator boot."
+regenerates = "Rebuilt on the next simulator boot (the first boot is slower)."
+method = "trash"
+busy = ["Simulator"]
+
+# ───────────────────────────── Developer: Android ─────────────────────────────
+
+[[rule]]
+id = "android.avd"
+name = "Android Virtual Devices"
+category = "Developer"
+paths = ["~/.android/avd/*.avd"]
+risk = "caution"
+description = "Deletes the virtual device including its apps, accounts and saved snapshots. The matching .ini file is left behind and the device disappears from Android Studio on its next refresh."
+regenerates = "Create a new AVD in Android Studio Device Manager."
+method = "trash"
+busy = ["qemu-system-aarch64", "qemu-system-x86_64", "emulator"]
+
+[[rule]]
+id = "android.system_images"
+name = "Android system images"
+category = "Developer"
+paths = ["~/Library/Android/sdk/system-images/*/*"]
+risk = "review"
+description = "Deletes downloaded emulator system images (1–3 GB each). AVDs that use an image stop booting."
+regenerates = "Re-download with the SDK Manager."
+method = "trash"
+busy = ["qemu-system-aarch64", "qemu-system-x86_64", "emulator"]
+
+[[rule]]
+id = "android.emulator"
+name = "Android emulator binaries"
+category = "Developer"
+paths = ["~/Library/Android/sdk/emulator"]
+risk = "review"
+description = "Deletes the Android emulator itself. You cannot start AVDs until it is reinstalled."
+regenerates = "Re-install 'Android Emulator' from the SDK Manager."
+method = "trash"
+busy = ["qemu-system-aarch64", "qemu-system-x86_64", "emulator", "Android Studio"]
+
+[[rule]]
+id = "android.gradle_caches"
+name = "Gradle caches"
+category = "Developer"
+paths = ["~/.gradle/caches/*"]
+risk = "safe"
+description = "Deletes downloaded dependencies and build caches. The next Gradle build downloads dependencies again, so it needs network access."
+regenerates = "Re-downloaded on the next build."
+method = "trash"
+busy = ["GradleDaemon", "Android Studio", "java"]
+
+[[rule]]
+id = "android.gradle_wrappers"
+name = "Gradle wrapper distributions"
+category = "Developer"
+paths = ["~/.gradle/wrapper/dists/*"]
+risk = "review"
+description = "Deletes downloaded Gradle versions. Each project re-downloads the version it needs the next time it builds."
+regenerates = "Downloaded by ./gradlew on demand."
+method = "trash"
+busy = ["GradleDaemon", "Android Studio"]
+
+[[rule]]
+id = "android.sdk_cache"
+name = "Android SDK cache"
+category = "Developer"
+paths = ["~/.android/cache/*", "~/.android/build-cache/*"]
+risk = "safe"
+description = "Deletes the SDK download cache and the legacy build cache."
+regenerates = "Rebuilt on demand."
+method = "trash"
+
+# ───────────────────────────── Developer: Flutter / Dart ─────────────────────────────
+
+[[rule]]
+id = "flutter.pub_cache"
+name = "Dart pub cache"
+category = "Developer"
+paths = ["~/.pub-cache/hosted/*", "~/.pub-cache/git/*"]
+risk = "review"
+description = "Deletes downloaded Dart/Flutter packages. Projects run `flutter pub get` again, which needs network access. Globally activated tools in ~/.pub-cache/bin are kept."
+regenerates = "`flutter pub get` / `dart pub get`."
+method = "trash"
+busy = ["dart", "flutter"]
+
+# ───────────────────────────── Package managers ─────────────────────────────
+
+[[rule]]
+id = "node.npm_cache"
+name = "npm cache"
+category = "Package managers"
+paths = ["~/.npm/_cacache"]
+detect = "command -v npm"
+risk = "safe"
+description = "Deletes the npm download cache. Installs are slower and may need network until it refills."
+regenerates = "Refilled on every npm install."
+method = "tool"
+tool = ["npm", "cache", "clean", "--force"]
+busy = ["npm"]
+
+[[rule]]
+id = "node.pnpm_store"
+name = "pnpm store"
+category = "Package managers"
+paths = ["~/Library/pnpm/store/*"]
+detect = "command -v pnpm"
+risk = "review"
+description = "`pnpm store prune` removes packages no project references. Hard-linked project files stay valid."
+regenerates = "Re-downloaded on the next pnpm install."
+method = "tool"
+tool = ["pnpm", "store", "prune"]
+busy = ["pnpm"]
+
+[[rule]]
+id = "node.yarn_cache"
+name = "Yarn cache"
+category = "Package managers"
+paths = ["~/Library/Caches/Yarn/*", "~/.yarn/berry/cache/*"]
+risk = "safe"
+description = "Deletes the Yarn download cache."
+regenerates = "Refilled on the next yarn install."
+method = "trash"
+busy = ["yarn"]
+
+[[rule]]
+id = "rust.cargo_registry"
+name = "Cargo registry cache"
+category = "Package managers"
+paths = ["~/.cargo/registry/cache/*", "~/.cargo/registry/src/*", "~/.cargo/git/checkouts/*", "~/.cargo/git/db/*"]
+risk = "review"
+description = "Deletes downloaded crate archives and unpacked sources. Cargo downloads them again on the next build, which needs network access (cargo --offline will fail for uncached crates)."
+regenerates = "Re-downloaded by cargo."
+method = "trash"
+busy = ["cargo", "rustc", "rust-analyzer"]
+
+[[rule]]
+id = "go.build_cache"
+name = "Go build cache"
+category = "Package managers"
+paths = ["~/Library/Caches/go-build"]
+detect = "command -v go"
+risk = "safe"
+description = "Deletes compiled package objects. The next build is slower."
+regenerates = "Rebuilt automatically."
+method = "tool"
+tool = ["go", "clean", "-cache"]
+busy = ["go"]
+
+[[rule]]
+id = "python.pip_cache"
+name = "pip cache"
+category = "Package managers"
+paths = ["~/Library/Caches/pip"]
+risk = "safe"
+description = "Deletes downloaded wheels and HTTP responses."
+regenerates = "Refilled on the next pip install."
+method = "trash"
+busy = ["pip", "pip3"]
+
+[[rule]]
+id = "brew.cache"
+name = "Homebrew cache"
+category = "Package managers"
+paths = ["~/Library/Caches/Homebrew/*"]
+detect = "command -v brew"
+risk = "safe"
+description = "`brew cleanup -s` removes old versions and scrubs the download cache."
+regenerates = "Bottles are downloaded again when you install or upgrade."
+method = "tool"
+tool = ["brew", "cleanup", "-s"]
+busy = ["brew"]
+
+[[rule]]
+id = "cocoapods.cache"
+name = "CocoaPods cache"
+category = "Package managers"
+paths = ["~/Library/Caches/CocoaPods/*"]
+risk = "safe"
+description = "Deletes cached pod sources and specs."
+regenerates = "`pod install` downloads them again."
+method = "trash"
+busy = ["pod", "ruby"]
+
+[[rule]]
+id = "docker.prune"
+name = "Docker prune"
+category = "Package managers"
+kind = "tool"
+paths = []
+detect = "command -v docker && docker info"
+risk = "caution"
+description = "`docker system prune` removes stopped containers, unused networks and dangling images. Volumes are not removed. Only runs when you opt in explicitly."
+regenerates = "Images are pulled or rebuilt when needed."
+method = "tool"
+tool = ["docker", "system", "prune", "-f"]
+opt_in = true
+
+# ───────────────────────────── Browsers ─────────────────────────────
+# Cache folders only. Profiles, cookies, history, bookmarks and passwords are never matched.
+
+[[rule]]
+id = "browser.chrome"
+name = "Google Chrome cache"
+category = "Browsers"
+paths = [
+  "~/Library/Caches/Google/Chrome/*",
+  "~/Library/Application Support/Google/Chrome/*/Cache",
+  "~/Library/Application Support/Google/Chrome/*/Code Cache",
+  "~/Library/Application Support/Google/Chrome/*/GPUCache",
+]
+risk = "safe"
+description = "Deletes cached web content. Pages load a little slower once. You stay signed in."
+regenerates = "Refilled while browsing."
+method = "trash"
+busy = ["Google Chrome"]
+
+[[rule]]
+id = "browser.brave"
+name = "Brave cache"
+category = "Browsers"
+paths = [
+  "~/Library/Caches/BraveSoftware/Brave-Browser/*",
+  "~/Library/Application Support/BraveSoftware/Brave-Browser/*/Cache",
+  "~/Library/Application Support/BraveSoftware/Brave-Browser/*/Code Cache",
+  "~/Library/Application Support/BraveSoftware/Brave-Browser/*/GPUCache",
+]
+risk = "safe"
+description = "Deletes cached web content. Pages load a little slower once. You stay signed in."
+regenerates = "Refilled while browsing."
+method = "trash"
+busy = ["Brave Browser"]
+
+[[rule]]
+id = "browser.safari"
+name = "Safari cache"
+category = "Browsers"
+paths = ["~/Library/Caches/com.apple.Safari/*"]
+risk = "safe"
+description = "Deletes cached web content and favicons. Needs Full Disk Access to read. History and logins are untouched."
+regenerates = "Refilled while browsing."
+method = "trash"
+busy = ["Safari"]
+
+[[rule]]
+id = "browser.firefox"
+name = "Firefox cache"
+category = "Browsers"
+paths = ["~/Library/Caches/Firefox/Profiles/*/cache2", "~/Library/Caches/Firefox/Profiles/*/startupCache"]
+risk = "safe"
+description = "Deletes cached web content. Pages load a little slower once."
+regenerates = "Refilled while browsing."
+method = "trash"
+busy = ["firefox"]
+
+# ───────────────────────────── App caches & System ─────────────────────────────
+
+[[rule]]
+id = "appcache.library_caches"
+name = "App caches (~/Library/Caches)"
+category = "App caches"
+paths = ["~/Library/Caches/*"]
+exclude = [
+  "~/Library/Caches/com.apple.*",
+  "~/Library/Caches/Google",
+  "~/Library/Caches/BraveSoftware",
+  "~/Library/Caches/Firefox",
+  "~/Library/Caches/Homebrew",
+  "~/Library/Caches/CocoaPods",
+  "~/Library/Caches/Yarn",
+  "~/Library/Caches/pip",
+  "~/Library/Caches/go-build",
+  "~/Library/Caches/*.ShipIt",
+]
+risk = "review"
+description = "Each app's cache folder is one item. Apps recreate caches, but some start slower or forget temporary state (for example thumbnails or offline data)."
+regenerates = "Recreated by each app on demand."
+method = "trash"
+
+[[rule]]
+id = "system.user_logs"
+name = "User logs"
+category = "System"
+paths = ["~/Library/Logs/*"]
+risk = "safe"
+description = "Deletes app log files and crash reports. Useful only for debugging."
+regenerates = "Apps write new logs as they run."
+method = "trash"
+
+[[rule]]
+id = "system.updater_caches"
+name = "App updater caches"
+category = "System"
+paths = [
+  "~/Library/Caches/*.ShipIt",
+  "~/Library/Caches/*/ShipIt",
+  "~/Library/Application Support/Caches/*-updater",
+  "~/Library/Application Support/*/pending",
+]
+risk = "safe"
+description = "Deletes downloaded update packages that were already applied or abandoned (ShipIt, Squirrel and similar)."
+regenerates = "Downloaded again when the app finds an update."
+method = "trash"
+busy = ["ShipIt", "Squirrel"]
+
+[[rule]]
+id = "system.trash"
+name = "Trash"
+category = "System"
+kind = "dynamic"
+dynamic = "trash"
+paths = ["~/.Trash/*"]
+risk = "caution"
+description = "Permanently deletes everything in the Trash. This cannot be undone."
+regenerates = "Not recoverable."
+method = "erase"
+
+# ───────────────────────────── Project build artifacts ─────────────────────────────
+# Found by scanning folders chosen by the user. An artifact folder only counts when a marker file
+# sits next to it, so a random folder named `build` is never matched.
+
+[[rule]]
+id = "artifact.node_modules"
+name = "node_modules"
+category = "Project build artifacts"
+kind = "artifact"
+dir_name = "node_modules"
+markers = ["package.json"]
+risk = "safe"
+description = "Deletes installed dependencies for the project."
+regenerates = "`npm install` / `pnpm install` / `yarn` (needs network unless a cache exists)."
+method = "trash"
+stale_days = 60
+busy = ["node", "npm", "pnpm", "yarn"]
+
+[[rule]]
+id = "artifact.rust_target"
+name = "Rust target/"
+category = "Project build artifacts"
+kind = "artifact"
+dir_name = "target"
+markers = ["Cargo.toml"]
+risk = "safe"
+description = "Deletes compiled output and incremental build state."
+regenerates = "`cargo build` (full rebuild)."
+method = "trash"
+stale_days = 30
+busy = ["cargo", "rustc"]
+
+[[rule]]
+id = "artifact.dart_tool"
+name = ".dart_tool"
+category = "Project build artifacts"
+kind = "artifact"
+dir_name = ".dart_tool"
+markers = ["pubspec.yaml"]
+risk = "safe"
+description = "Deletes Dart tooling state and package config."
+regenerates = "`flutter pub get`."
+method = "trash"
+stale_days = 30
+busy = ["dart", "flutter"]
+
+[[rule]]
+id = "artifact.flutter_build"
+name = "Flutter build/"
+category = "Project build artifacts"
+kind = "artifact"
+dir_name = "build"
+markers = ["pubspec.yaml"]
+risk = "safe"
+description = "Deletes Flutter build output for the project."
+regenerates = "`flutter build` / `flutter run`."
+method = "trash"
+stale_days = 30
+busy = ["dart", "flutter", "xcodebuild"]
+
+[[rule]]
+id = "artifact.gradle"
+name = ".gradle"
+category = "Project build artifacts"
+kind = "artifact"
+dir_name = ".gradle"
+markers = ["build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts"]
+risk = "safe"
+description = "Deletes the project's Gradle state."
+regenerates = "Recreated by the next Gradle run."
+method = "trash"
+stale_days = 30
+busy = ["GradleDaemon", "Android Studio"]
+
+[[rule]]
+id = "artifact.gradle_build"
+name = "Gradle build/"
+category = "Project build artifacts"
+kind = "artifact"
+dir_name = "build"
+markers = ["build.gradle", "build.gradle.kts"]
+risk = "safe"
+description = "Deletes compiled output of the Gradle project."
+regenerates = "`./gradlew build`."
+method = "trash"
+stale_days = 30
+busy = ["GradleDaemon", "Android Studio"]
+
+[[rule]]
+id = "artifact.pycache"
+name = "__pycache__"
+category = "Project build artifacts"
+kind = "artifact"
+dir_name = "__pycache__"
+markers = []
+risk = "safe"
+description = "Deletes Python bytecode caches."
+regenerates = "Written again whenever the modules are imported."
+method = "trash"
+stale_days = 0
+
+[[rule]]
+id = "artifact.derived_data_local"
+name = "Project-local DerivedData"
+category = "Project build artifacts"
+kind = "artifact"
+dir_name = "DerivedData"
+markers = []
+risk = "safe"
+description = "Deletes build products stored beside the project."
+regenerates = "Next Xcode / xcodebuild build."
+method = "trash"
+stale_days = 30
+busy = ["Xcode", "xcodebuild"]

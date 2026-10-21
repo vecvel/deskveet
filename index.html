@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="color-scheme" content="dark light" />
+  <title>Deskveet</title>
+  <link rel="stylesheet" href="/src/styles.css" />
+</head>
+<body>
+  <div id="app">
+    <aside id="side">
+      <div class="drag" data-tauri-drag-region></div>
+      <div class="brand"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-opacity=".28" stroke-width="3"/><path d="M12 4a8 8 0 1 1-8 8" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/><circle cx="12" cy="12" r="2.2" fill="currentColor"/></svg><span>Deskveet</span></div>
+      <nav id="nav" aria-label="Sections"></nav>
+      <div class="foot">Offline · no telemetry</div>
+    </aside>
+    <main id="main" tabindex="-1"></main>
+  </div>
+  <div id="toasts" aria-live="polite"></div>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>
