@@ -1,14 +1,20 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
   <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#1b2a3a"/><stop offset="1" stop-color="#0b1119"/>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#34332f"/><stop offset="1" stop-color="#1f1e1c"/>
     </linearGradient>
-    <linearGradient id="ring" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#5eead4"/><stop offset="1" stop-color="#38bdf8"/>
+    <linearGradient id="arc" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ec9a7a"/><stop offset="1" stop-color="#c4603e"/>
     </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.38" r="0.7">
+      <stop offset="0" stop-color="#ffffff" stop-opacity=".07"/><stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
   </defs>
-  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#bg)"/>
-  <circle cx="512" cy="512" r="250" fill="none" stroke="#223447" stroke-width="64"/>
-  <path d="M512 262 A250 250 0 1 1 262 512" fill="none" stroke="url(#ring)" stroke-width="64" stroke-linecap="round"/>
-  <circle cx="512" cy="512" r="64" fill="url(#ring)"/>
+  <rect x="100" y="100" width="824" height="824" rx="190" fill="url(#bg)"/>
+  <rect x="100" y="100" width="824" height="824" rx="190" fill="url(#glow)"/>
+  <rect x="101.5" y="101.5" width="821" height="821" rx="188.5" fill="none" stroke="#faf9f5" stroke-opacity=".08" stroke-width="3"/>
+  <circle cx="512" cy="512" r="262" fill="none" stroke="#faf9f5" stroke-opacity=".09" stroke-width="58"/>
+  <circle cx="512" cy="512" r="262" fill="none" stroke="url(#arc)" stroke-width="58" stroke-linecap="round"
+          stroke-dasharray="1280 367" transform="rotate(-50 512 512)"/>
+  <path d="M512 372 C521 468 556 503 652 512 C556 521 521 556 512 652 C503 556 468 521 372 512 C468 503 503 468 512 372 Z" fill="#faf9f5"/>
 </svg>
