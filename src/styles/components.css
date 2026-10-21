@@ -146,7 +146,8 @@ dialog .btns { display: flex; justify-content: flex-end; gap: 8px; }
 .disk .banner { margin-top: var(--sp-2); }
 .stack { display: flex; flex-direction: column; gap: var(--sp-4); }
 /* treemap: a scroller; the largest items fill the first screen, smaller ones follow below it */
-.tmap { position: relative; height: calc(100vh - 210px); min-height: 400px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--r); overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; }
+/* its height is set to the space left in the window (storage.ts), so the whole scroller is always on screen */
+.tmap { position: relative; height: 400px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--r); overflow-x: hidden; overflow-y: auto; }
 .tmap-canvas { position: relative; }
 .cell { position: absolute; border-radius: 6px; padding: 6px 8px; overflow: hidden; display: flex; flex-direction: column; gap: 1px; color: var(--text); font-size: 12px; background: var(--panel2);
   opacity: 0; transform: translateY(10px) scale(.97); transform-origin: top left; transition: opacity var(--reveal) var(--ease-out), transform var(--reveal) var(--ease-out); }
@@ -195,8 +196,9 @@ input[type="checkbox"] { accent-color: var(--accent); width: 15px; height: 15px;
 /* dialogs: preview / undo log */
 dialog.wide { width: min(780px, var(--dialog-max)); max-height: 86vh; display: flex; flex-direction: column; }
 dialog.wide[open] { display: flex; }
-dialog.wide .pv-body { overflow: auto; min-height: 0; flex: 1; }
-dialog.wide > .pv-list { overflow: auto; flex: 1; min-height: 0; }
+/* flex-basis auto, not 0%: WebKit sizes a 0% basis to nothing in an auto-height column, collapsing the body */
+dialog.wide .pv-body { overflow: auto; min-height: 0; flex: 1 1 auto; }
+dialog.wide > .pv-list { overflow: auto; flex: 1 1 auto; min-height: 0; }
 dialog.wide .btns { margin-top: 14px; }
 dialog .muted { margin-bottom: 8px; }
 .pv-list { border: 1px solid var(--border); border-radius: 10px; margin-bottom: 4px; }
@@ -288,9 +290,12 @@ input.switch:checked::after { transform: translateX(14px); background: var(--acc
 .status b:first-child { margin-left: 0; }
 
 /* form fields (custom rule editor) */
-.re-form { display: flex; flex-direction: column; gap: var(--sp-3); }
+/* a grid, not a flex column: rows keep their natural height and the body scrolls (WebKit redistributed
+   a height-limited flex column, leaving a gap above the first field) */
+.re-form { display: grid; grid-template-columns: minmax(0, 1fr); align-content: start; gap: var(--sp-3); }
 .field { display: flex; flex-direction: column; gap: var(--sp-1); min-width: 0; }
 .field .nm { font-weight: 560; font-size: var(--fs-sm); }
+.re-pair { align-items: flex-start; } /* labels of side-by-side fields on one line */
 .field input[type="text"], .field textarea, .field select { background: var(--panel); border: 1px solid var(--border); border-radius: var(--r-sm); padding: 7px 10px; font: inherit; color: var(--text); user-select: text; -webkit-user-select: text; resize: vertical; }
 .field textarea { font-family: var(--mono); font-size: var(--fs-sm); }
 .re-preview { border-top: 1px solid var(--border); padding-top: var(--sp-3); }

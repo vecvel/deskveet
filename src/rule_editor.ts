@@ -82,7 +82,7 @@ export function openRuleEditor(start: Draft, onSaved: (id: string) => void) {
     h("h3", { id: "re-title", text: start.id ? "Edit custom rule" : "New custom rule" }),
     h("div", { class: "pv-body re-form" },
       field("Name", name),
-      h("div", { class: "row gap-3 wrap" }, field("Category", cat), field("Risk", risk)),
+      h("div", { class: "row gap-3 wrap re-pair" }, field("Category", cat), field("Risk", risk)),
       h("div", { class: "field" }, h("div", { class: "row sb" }, h("span", { class: "nm", text: "Paths" }), choose), paths,
         h("span", { class: "tertiary small", text: "One per line. * matches any name in one folder; {gradle_home} style locations work too. Custom rules always move items to the Trash." })),
       field("Exclude", exclude, "Optional. Items matching these are left alone."),

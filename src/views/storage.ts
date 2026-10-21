@@ -154,7 +154,17 @@ export function storageView(): View {
     const rest = sorted.slice(MAP_MAX).reduce((s, r) => s + r.size, 0);
     const cells: { r: Row | null; size: number }[] = shown.map((r) => ({ r, size: r.size }));
     if (rest) cells.push({ r: null, size: rest });
+    const main = document.getElementById("main")!;
+    /** Fill the rest of the window below the toolbar (at least 240px, which fits the smallest window even with a
+     *  banner; below that the page scrolls too, and scrolling carries on from the treemap to the page). */
+    const fit = () => {
+      const top = wrap.getBoundingClientRect().top - main.getBoundingClientRect().top + main.scrollTop;
+      const want = Math.max(240, Math.floor(main.clientHeight - top - parseFloat(getComputedStyle(main).paddingBottom)));
+      if (Math.abs(wrap.offsetHeight - want) > 1) wrap.style.height = `${want}px`;
+    };
     const draw = () => {
+      if (!wrap.isConnected) return;
+      fit();
       const W = wrap.clientWidth, H = wrap.clientHeight;
       if (!W || !H) return;
       const { rects, height } = bandedTreemap(cells.map((c) => c.size), W, H);
@@ -195,6 +205,7 @@ export function storageView(): View {
     ro?.disconnect();
     ro = new ResizeObserver(() => draw());
     ro.observe(wrap);
+    ro.observe(main); // the window got taller or shorter
     queueMicrotask(draw);
     return wrap;
   }
