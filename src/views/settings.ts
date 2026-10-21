@@ -1,5 +1,7 @@
-import { api, About, Location, RuleInfo, RuleResult, RuleState, RuleStatus } from "../api";
+import { api, About, Draft, Location, RuleInfo, RuleResult, RuleState, RuleStatus } from "../api";
 import { openPreview } from "../preview";
+import { emptyDraft, openRuleEditor } from "../rule_editor";
+import { confirmDialog } from "../dom";
 import { h, toast } from "../dom";
 import { bytes, tilde } from "../fmt";
 import { store } from "../store";
@@ -26,15 +28,16 @@ export function settingsView(): View {
   let rulesOpen = store.get("set.rulesOpen", false);
   let locsOpen = store.get("set.locsOpen", false);
   let query = "";
-  let filter: "all" | "here" | "missing" | "off" = "all";
+  let filter: "all" | "here" | "missing" | "off" | "custom" = "all";
+  let customs: Draft[] = [];
   let checking = false;
 
   async function loadRules(redetect = false) {
     checking = true; render();
     try {
       if (redetect) locations = await api.locationsRedetect();
-      const [list, st, cs, locs] = await Promise.all([api.rulesList(), api.rulesStatus(), api.cleanupState(), redetect ? Promise.resolve(locations) : api.locationsInfo()]);
-      rules = list; locations = locs;
+      const [list, st, cs, locs, cu] = await Promise.all([api.rulesList(), api.rulesStatus(), api.cleanupState(), redetect ? Promise.resolve(locations) : api.locationsInfo(), api.rulesCustom()]);
+      rules = list; locations = locs; customs = cu;
       status = new Map(st.map((x) => [x.id, x]));
       scanned = new Map(cs.results.map((r) => [r.rule.id, r]));
     } catch (e) { toast(String(e), true); }
@@ -75,12 +78,26 @@ export function settingsView(): View {
     const ids = sc?.items.filter((i) => !i.blocked).map((i) => i.id) ?? [];
     const right = h("div", { class: "act2" });
     if (sc && sc.total) right.append(h("div", { class: "sz", text: bytes(sc.total) }));
+    const edit = (e: Event, d: Draft) => { e.preventDefault(); openRuleEditor(d, () => void loadRules()); };
+    if (r.custom) {
+      const draft = customs.find((c) => c.id === r.id);
+      right.append(h("div", { class: "row gap-1" },
+        ...(draft ? [h("button", { class: "btn sm", text: "Edit", onclick: (e: Event) => edit(e, draft) })] : []),
+        h("button", { class: "btn sm", text: "Delete", onclick: async (e: Event) => {
+          e.preventDefault();
+          if (!(await confirmDialog({ title: `Delete \u201c${r.name}\u201d?`, body: "The rule is removed. Nothing it matched is touched.", ok: "Delete rule", danger: true }))) return;
+          await api.ruleDelete(r.id).catch((er) => toast(String(er), true));
+          void loadRules();
+        } })));
+    } else if (r.paths.length && r.kind === "path") {
+      right.append(h("button", { class: "link", text: "Duplicate", title: "Start a custom rule from this one", onclick: (e: Event) => edit(e, { ...emptyDraft(), name: `${r.name} (custom)`, category: r.category === "Project build artifacts" ? "Custom" : r.category, paths: r.paths, exclude: r.exclude, risk: r.risk, description: r.description }) }));
+    }
     if (ids.length && sw.checked) right.append(h("button", { class: "btn sm", text: "Clean now", onclick: (e: Event) => { e.preventDefault(); void openPreview({ ids, dryRun: store.get("cl.dry", false), onCleaned: () => void loadRules() }); } }));
     const where = (st?.locations ?? []).map((l) => h("div", { class: "tertiary small", text: l.path ? `Looks in ${tilde(l.path)} (${l.source === "default" ? "default location" : `from ${l.source}`})` : `No ${l.id.replace(/_/g, " ")} folder found` }));
     const skipped = (st?.locations ?? []).flatMap((l) => l.skipped).map((x) => h("div", { class: "why warnx small", text: x }));
     return h("label", { class: "rule-row" + (sw.checked ? "" : " off") }, sw,
       h("div", { class: "pv-main" },
-        h("div", { class: "row gap-2 wrap" }, h("span", { class: "nm", text: r.name }),
+        h("div", { class: "row gap-2 wrap" }, h("span", { class: "nm", text: r.name }), ...(r.custom ? [h("span", { class: "chip", text: "Custom" })] : []),
           h("span", { class: `pill ${r.risk === "safe" ? "ok" : r.risk === "review" ? "warn" : "bad"}`, text: r.risk }),
           h("span", { class: "status" }, h("b", { class: cls, text: label }), st?.note && st.state !== "ready" ? ` ${st.note}` : st?.matches ? ` ${st.matches} found` : "")),
         h("div", { class: "muted small", text: r.description }), ...where, ...skipped),
@@ -102,11 +119,23 @@ export function settingsView(): View {
     const search = h("input", { class: "search", type: "search", placeholder: "Filter rules", "aria-label": "Filter rules", value: query });
     search.addEventListener("input", () => { query = search.value; render(); card.ownerDocument.querySelector<HTMLInputElement>(".rules-tools .search")?.focus(); });
     const seg = h("div", { class: "seg", role: "group", "aria-label": "Show" });
-    for (const [k, t] of [["all", "All"], ["here", "On this Mac"], ["missing", "Not here"], ["off", "Off"]] as const) {
+    for (const [k, t] of [["all", "All"], ["here", "On this Mac"], ["missing", "Not here"], ["off", "Off"], ["custom", "Custom"]] as const) {
       seg.append(h("button", { text: t, "aria-pressed": String(filter === k), onclick: () => { filter = k; render(); } }));
     }
     card.append(h("div", { class: "toolbar rules-tools mt-3" }, search, seg,
-      h("button", { class: "btn sm", text: checking ? "Checking\u2026" : "Check again", disabled: checking, onclick: () => void loadRules() })));
+      h("button", { class: "btn sm", text: checking ? "Checking\u2026" : "Check again", disabled: checking, onclick: () => void loadRules() })),
+      h("div", { class: "row gap-2 mt-2" },
+        h("button", { class: "btn sm primary", text: "Add rule", onclick: () => openRuleEditor(emptyDraft(), () => { filter = "custom"; void loadRules(); }) }),
+        h("button", { class: "btn sm", text: "Import\u2026", onclick: async () => {
+          const r = await api.rulesImport().catch((e) => { toast(String(e), true); return null; });
+          if (!r) return;
+          toast(`Imported ${r.added} rule${r.added === 1 ? "" : "s"}${r.skipped.length ? `, skipped ${r.skipped.length}: ${r.skipped[0]}` : ""}`, r.skipped.length > 0);
+          void loadRules();
+        } }),
+        h("button", { class: "btn sm", text: "Export\u2026", disabled: !customs.length, onclick: async () => {
+          const p = await api.rulesExport().catch((e) => { toast(String(e), true); return null; });
+          if (p) toast(`Exported to ${tilde(p)}`);
+        } })));
     const q = query.trim().toLowerCase();
     const shown = rules.filter((r) => {
       const st = status.get(r.id);
@@ -114,6 +143,7 @@ export function settingsView(): View {
       if (filter === "here") return applies(st);
       if (filter === "missing") return !!st && !applies(st);
       if (filter === "off") return off.has(r.id);
+      if (filter === "custom") return r.custom;
       return true;
     });
     for (const cat of [...new Set(shown.map((r) => r.category))]) {

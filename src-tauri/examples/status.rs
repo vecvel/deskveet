@@ -9,7 +9,7 @@ fn main() {
     let t = std::time::Instant::now();
     let all = eng.status_all();
     if std::env::args().any(|a| a == "--json") {
-        let rules: Vec<RuleInfo> = eng.reg.rules.iter().map(Into::into).collect();
+        let rules: Vec<RuleInfo> = eng.registry().rules.iter().map(Into::into).collect();
         let mut locs: Vec<_> = eng.locations().values().cloned().collect();
         locs.sort_by(|a, b| a.id.cmp(&b.id));
         println!("{}", serde_json::json!({ "rules": rules, "status": all, "locations": locs }));

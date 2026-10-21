@@ -169,6 +169,12 @@ fn spawn_reaped(cmd: &mut Command) -> io::Result<()> {
     Ok(())
 }
 
+fn osascript_path(script: &str) -> Option<PathBuf> {
+    let out = Command::new("/usr/bin/osascript").args(["-e", script]).stderr(Stdio::null()).output().ok()?;
+    let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    (out.status.success() && !s.is_empty()).then(|| PathBuf::from(s))
+}
+
 // ───────────────────────────── Platform ─────────────────────────────
 
 impl Platform for Mac {
@@ -252,6 +258,15 @@ impl Platform for Mac {
             }
         }
         blocked.then_some(false)
+    }
+
+    fn pick_save_file(&self, default_name: &str) -> Option<PathBuf> {
+        let name = default_name.replace(['"', '\\'], "");
+        osascript_path(&format!("POSIX path of (choose file name with prompt \"Export custom rules\" default name \"{name}\")"))
+    }
+
+    fn pick_file(&self) -> Option<PathBuf> {
+        osascript_path("POSIX path of (choose file with prompt \"Import custom rules\")")
     }
 
     fn pick_folder(&self) -> Option<PathBuf> {

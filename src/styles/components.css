@@ -277,3 +277,12 @@ input.switch:checked::after { transform: translateX(14px); background: var(--acc
 .rules-tools .search { min-width: 140px; }
 .rule-row .act2 { display: flex; flex-direction: column; align-items: flex-end; gap: var(--sp-1); }
 .status b:first-child { margin-left: 0; }
+
+/* form fields (custom rule editor) */
+.re-form { display: flex; flex-direction: column; gap: var(--sp-3); }
+.field { display: flex; flex-direction: column; gap: var(--sp-1); min-width: 0; }
+.field .nm { font-weight: 560; font-size: var(--fs-sm); }
+.field input[type="text"], .field textarea, .field select { background: var(--panel); border: 1px solid var(--border); border-radius: var(--r-sm); padding: 7px 10px; font: inherit; color: var(--text); user-select: text; -webkit-user-select: text; resize: vertical; }
+.field textarea { font-family: var(--mono); font-size: var(--fs-sm); }
+.re-preview { border-top: 1px solid var(--border); padding-top: var(--sp-3); }
+.re-preview p { margin-bottom: var(--sp-2); }

@@ -56,8 +56,18 @@ fn real_engine() -> Engine {
     Engine::new(reg, home.clone(), Arc::new(RealSys::new(home.clone())), home.join(".Trash"), platform::data_dir().join("undo-log.json"))
 }
 
+fn custom_rules_path() -> PathBuf {
+    platform::data_dir().join("rules.user.toml")
+}
+
 impl AppState {
     pub fn new() -> Self {
+        let s = Self::build();
+        s.engine.set_custom_rules(&crate::user_rules::load(&custom_rules_path()));
+        s
+    }
+
+    fn build() -> Self {
         Self {
             mon: Mutex::new(Monitor::new()),
             loaded: Mutex::new(None),
@@ -335,7 +345,7 @@ struct CleanProgress {
 pub fn cleanup_state(state: State<'_, AppState>) -> CleanupState {
     CleanupState {
         running: state.cleaning.load(Relaxed),
-        rules_version: state.engine.reg.rules_version.clone(),
+        rules_version: state.engine.registry().rules_version.clone(),
         results: state.results.lock().unwrap().as_ref().clone(),
         undo_log: state.engine.undo.path().to_string_lossy().into_owned(),
     }
@@ -587,8 +597,8 @@ pub fn about(state: State<'_, AppState>) -> About {
         .unwrap_or(0);
     About {
         version: env!("CARGO_PKG_VERSION").into(),
-        rules_version: state.engine.reg.rules_version.clone(),
-        rules_count: state.engine.reg.rules.len(),
+        rules_version: state.engine.registry().rules_version.clone(),
+        rules_count: state.engine.registry().rules.len(),
         cache_dir: cache.to_string_lossy().into_owned(),
         cache_bytes,
         data_dir: platform::data_dir().to_string_lossy().into_owned(),
@@ -687,7 +697,7 @@ pub fn apps_quit(state: State<'_, AppState>, targets: Vec<QuitTarget>, force: bo
 /// Every rule in the registry, for the Settings list.
 #[tauri::command(async)]
 pub fn rules_list(state: State<'_, AppState>) -> Vec<crate::cleaner::RuleInfo> {
-    state.engine.reg.rules.iter().map(Into::into).collect()
+    state.engine.registry().rules.iter().map(Into::into).collect()
 }
 
 /// Where each tool location resolved on this Mac, and from which source.
@@ -709,4 +719,90 @@ pub fn locations_redetect(state: State<'_, AppState>) -> Vec<crate::locate::Reso
 #[tauri::command(async)]
 pub fn rules_status(state: State<'_, AppState>) -> Vec<crate::cleaner::RuleStatus> {
     state.engine.status_all()
+}
+
+// ───────────────────────────── custom rules ─────────────────────────────
+
+use crate::user_rules::{self as ur, Draft};
+
+#[tauri::command(async)]
+pub fn rules_custom() -> Vec<Draft> {
+    ur::load(&custom_rules_path())
+}
+
+/// Try a draft: validation plus what it would match right now. Changes nothing.
+#[tauri::command(async)]
+pub fn rule_test(state: State<'_, AppState>, draft: Draft) -> crate::cleaner::RuleTest {
+    state.engine.test_rule(&draft)
+}
+
+/// Save a custom rule (new or edited). Returns its id.
+#[tauri::command(async)]
+pub fn rule_save(state: State<'_, AppState>, mut draft: Draft) -> Result<String, String> {
+    let t = state.engine.test_rule(&draft);
+    if !t.ok {
+        return Err(t.error.unwrap_or_else(|| "This rule can't be saved.".into()));
+    }
+    let path = custom_rules_path();
+    let mut all = ur::load(&path);
+    match all.iter().position(|d| !draft.id.is_empty() && d.id == draft.id) {
+        Some(i) => all[i] = draft.clone(),
+        None => {
+            let taken: HashSet<String> = state.engine.registry().rules.iter().map(|r| r.id.clone()).collect();
+            draft.id = ur::new_id(&draft.name, &taken);
+            all.push(draft.clone());
+        }
+    }
+    ur::save(&path, &all).map_err(|e| format!("Could not save the rule: {e}"))?;
+    state.engine.set_custom_rules(&all);
+    Ok(draft.id)
+}
+
+#[tauri::command(async)]
+pub fn rule_delete(state: State<'_, AppState>, id: String) -> Result<(), String> {
+    let path = custom_rules_path();
+    let mut all = ur::load(&path);
+    all.retain(|d| d.id != id);
+    ur::save(&path, &all).map_err(|e| e.to_string())?;
+    state.engine.set_custom_rules(&all);
+    Ok(())
+}
+
+#[tauri::command(async)]
+pub fn rules_export(state: State<'_, AppState>) -> Result<Option<String>, String> {
+    let Some(dest) = state.mon.lock().unwrap().plat().pick_save_file("deskveet-rules.toml") else { return Ok(None) };
+    std::fs::write(&dest, ur::to_toml(&ur::load(&custom_rules_path()))).map_err(|e| e.to_string())?;
+    Ok(Some(dest.to_string_lossy().into_owned()))
+}
+
+#[derive(Serialize)]
+pub struct ImportResult {
+    pub added: usize,
+    pub skipped: Vec<String>,
+}
+
+/// Import custom rules from a file. Each rule is validated and tested like one typed in by hand.
+#[tauri::command(async)]
+pub fn rules_import(state: State<'_, AppState>) -> Result<Option<ImportResult>, String> {
+    let Some(src) = state.mon.lock().unwrap().plat().pick_file() else { return Ok(None) };
+    let text = std::fs::read_to_string(&src).map_err(|e| e.to_string())?;
+    let incoming = ur::parse(&text)?;
+    let path = custom_rules_path();
+    let mut all = ur::load(&path);
+    let mut taken: HashSet<String> = state.engine.registry().rules.iter().map(|r| r.id.clone()).collect();
+    let (mut added, mut skipped) = (0, Vec::new());
+    for mut d in incoming {
+        let t = state.engine.test_rule(&d);
+        if !t.ok {
+            skipped.push(format!("{}: {}", d.name, t.error.unwrap_or_default()));
+            continue;
+        }
+        d.id = ur::new_id(&d.name, &taken);
+        taken.insert(d.id.clone());
+        all.push(d);
+        added += 1;
+    }
+    ur::save(&path, &all).map_err(|e| e.to_string())?;
+    state.engine.set_custom_rules(&all);
+    Ok(Some(ImportResult { added, skipped }))
 }

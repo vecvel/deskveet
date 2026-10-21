@@ -288,6 +288,16 @@ impl Safety {
         None
     }
 
+    /// Home itself or one of the folders that are never cleaned as a whole (Desktop, Documents, Library, ...).
+    pub fn is_protected_root(&self, p: &Path) -> bool {
+        p == self.home || exact_blocks(&self.home).iter().any(|(b, _)| b == p)
+    }
+
+    /// Why `p` is protected, if it is.
+    pub fn protected_reason(&self, p: &Path) -> Option<&'static str> {
+        self.blocked(p, false)
+    }
+
     /// Returns the real path that may be acted on.
     pub fn check(&self, path: &Path, allowed: &Allowed) -> Result<PathBuf, Denied> {
         let rule_mode = matches!(allowed, Allowed::Rule(_)); // only glob rules may name /usr/local etc.

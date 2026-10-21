@@ -86,6 +86,9 @@ pub trait Platform: Send + Sync {
     fn open_full_disk_access_settings(&self) -> io::Result<()>;
     /// Does *this running build* have Full Disk Access? `None` when it cannot be told.
     fn full_disk_access(&self) -> Option<bool>;
+    /// Native "save as" and "open" dialogs for a rules file. `None` when cancelled.
+    fn pick_save_file(&self, default_name: &str) -> Option<PathBuf>;
+    fn pick_file(&self) -> Option<PathBuf>;
     /// Ask the user for a folder with the native chooser. `None` when cancelled.
     fn pick_folder(&self) -> Option<PathBuf>;
 }

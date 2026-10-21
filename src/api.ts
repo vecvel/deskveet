@@ -44,8 +44,12 @@ export type Risk = "safe" | "review" | "caution";
 export type MethodName = "trash" | "tool" | "erase";
 export interface RuleInfo {
   id: string; name: string; category: string; kind: string; risk: Risk; method: MethodName; description: string;
-  regenerates: string; tool: string | null; opt_in: boolean; needs_admin: boolean;
+  regenerates: string; tool: string | null; opt_in: boolean; needs_admin: boolean; custom: boolean;
+  paths: string[]; exclude: string[];
 }
+export interface Draft { id: string; name: string; category: string; paths: string[]; exclude: string[]; risk: Risk; description: string; busy: string[] }
+export interface TestItem { path: string; size: number; why: string | null }
+export interface RuleTest { ok: boolean; error: string | null; count: number; total: number; measured: number; items: TestItem[]; blocked: TestItem[] }
 export interface CItem {
   id: string; rule_id: string; label: string; path: string | null; size: number; files: number; mtime: number;
   blocked: string | null; info: string[];
@@ -118,6 +122,12 @@ export const api = {
   appsQuit: (targets: { pid: number; bundle_id: string }[], force: boolean) => call<QuitResult[]>("apps_quit", { targets, force }),
   rulesList: () => call<RuleInfo[]>("rules_list"),
   rulesStatus: () => call<RuleStatus[]>("rules_status"),
+  rulesCustom: () => call<Draft[]>("rules_custom"),
+  ruleTest: (draft: Draft) => call<RuleTest>("rule_test", { draft }),
+  ruleSave: (draft: Draft) => call<string>("rule_save", { draft }),
+  ruleDelete: (id: string) => call<void>("rule_delete", { id }),
+  rulesExport: () => call<string | null>("rules_export"),
+  rulesImport: () => call<{ added: number; skipped: string[] } | null>("rules_import"),
   locationsInfo: () => call<Location[]>("locations_info"),
   locationsRedetect: () => call<Location[]>("locations_redetect"),
   fdaStatus: () => call<"granted" | "denied" | "unknown">("fda_status"),

@@ -5,7 +5,7 @@ use std::collections::HashSet;
 
 /// Highest schema this build reads. v2 adds `[[location]]` and `{location}` tokens in paths.
 pub const SCHEMA_VERSION: u32 = 2;
-pub const CATEGORIES: &[&str] = &["Developer", "Browsers", "App caches", "System", "Package managers", "Project build artifacts"];
+pub const CATEGORIES: &[&str] = &["Developer", "Browsers", "App caches", "System", "Package managers", "Project build artifacts", "Custom"];
 
 #[derive(Deserialize, Serialize, Clone, Copy, PartialEq, Eq, Debug)]
 #[serde(rename_all = "lowercase")]
@@ -63,6 +63,9 @@ pub struct Rule {
     pub stale_days: Option<u32>,
     /// Bundle id of the app this rule belongs to; the rule is "not installed" without it.
     pub app: Option<String>,
+    /// Made by the user (stored in rules.user.toml), not shipped with the app.
+    #[serde(default)]
+    pub custom: bool,
 }
 
 impl Rule {

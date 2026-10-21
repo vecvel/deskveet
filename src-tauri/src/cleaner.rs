@@ -34,6 +34,10 @@ pub struct RuleInfo {
     pub tool: Option<String>,
     pub opt_in: bool,
     pub needs_admin: bool,
+    pub custom: bool,
+    /// The rule's patterns as written (with `{location}` tokens), for duplicating and display.
+    pub paths: Vec<String>,
+    pub exclude: Vec<String>,
 }
 
 impl From<&Rule> for RuleInfo {
@@ -50,6 +54,9 @@ impl From<&Rule> for RuleInfo {
             tool: r.tool_display(),
             opt_in: r.opt_in,
             needs_admin: r.needs_admin,
+            custom: r.custom,
+            paths: r.paths.clone(),
+            exclude: r.exclude.clone(),
         }
     }
 }
@@ -81,6 +88,26 @@ pub struct RuleResult {
     pub total: u64,
     /// Processes from the rule's `busy` list that are running right now.
     pub running: Vec<String>,
+}
+
+/// Result of trying a custom rule before saving it.
+#[derive(Serialize, Clone, Debug)]
+pub struct RuleTest {
+    pub ok: bool,
+    pub error: Option<String>,
+    pub count: usize,
+    /// Bytes of the largest matches that were measured (`measured` of them).
+    pub total: u64,
+    pub measured: usize,
+    pub items: Vec<TestItem>,
+    pub blocked: Vec<TestItem>,
+}
+
+#[derive(Serialize, Clone, Debug)]
+pub struct TestItem {
+    pub path: String,
+    pub size: u64,
+    pub why: Option<String>,
 }
 
 /// What a rule can do on this Mac, without measuring anything (fast enough for a settings list).
@@ -175,7 +202,9 @@ pub struct RunOpts {
 // ───────────────────────────── engine ─────────────────────────────
 
 pub struct Engine {
-    pub reg: Arc<Registry>,
+    /// Built-in rules plus the user's custom rules; replaced when custom rules change.
+    reg: std::sync::RwLock<Arc<Registry>>,
+    builtin: Arc<Registry>,
     pub safety: Safety,
     pub sys: Arc<dyn Sys>,
     pub trash_dir: PathBuf,
@@ -322,7 +351,27 @@ fn random_token() -> String {
 
 impl Engine {
     pub fn new(reg: Registry, home: PathBuf, sys: Arc<dyn Sys>, trash_dir: PathBuf, undo_path: PathBuf) -> Engine {
-        Engine { reg: Arc::new(reg), safety: Safety::new(home), sys, trash_dir, undo: UndoLog::new(undo_path), art_roots: Mutex::new(Vec::new()), locs: Mutex::new(None), me: std::process::id() }
+        let reg = Arc::new(reg);
+        Engine { reg: std::sync::RwLock::new(reg.clone()), builtin: reg, safety: Safety::new(home), sys, trash_dir, undo: UndoLog::new(undo_path), art_roots: Mutex::new(Vec::new()), locs: Mutex::new(None), me: std::process::id() }
+    }
+
+    pub fn registry(&self) -> Arc<Registry> {
+        self.reg.read().unwrap().clone()
+    }
+
+    pub fn builtin(&self) -> Arc<Registry> {
+        self.builtin.clone()
+    }
+
+    /// Use these custom rules from now on (built-in rules stay as they are).
+    pub fn set_custom_rules(&self, drafts: &[crate::user_rules::Draft]) {
+        let mut merged = Registry { schema_version: self.builtin.schema_version, rules_version: self.builtin.rules_version.clone(), locations: self.builtin.locations.clone(), rules: self.builtin.rules.clone() };
+        for d in drafts {
+            if merged.get(&d.id).is_none() {
+                merged.rules.push(d.to_rule());
+            }
+        }
+        *self.reg.write().unwrap() = Arc::new(merged);
     }
 
     pub fn home(&self) -> &Path {
@@ -344,7 +393,7 @@ impl Engine {
         }
         let env = self.sys.env();
         let sys = self.sys.clone();
-        let l = Arc::new(locate::resolve(&self.reg.locations, &env, &move |argv: &[String]| sys.query(argv), &self.safety));
+        let l = Arc::new(locate::resolve(&self.registry().locations, &env, &move |argv: &[String]| sys.query(argv), &self.safety));
         *g = Some(l.clone());
         l
     }
@@ -391,8 +440,9 @@ impl Engine {
 
     pub fn scan_all(&self, cancel: &AtomicBool, disabled: &HashSet<String>, on_rule: &(dyn Fn(&RuleResult) + Sync)) -> Vec<RuleResult> {
         let procs = self.sys.processes();
+        let reg = self.registry();
         let out: Vec<Option<RuleResult>> = self.pool(|| {
-            self.reg
+            reg
                 .rules
                 .par_iter()
                 .filter(|r| r.kind != Kind::Artifact && !disabled.contains(&r.id))
@@ -596,11 +646,44 @@ impl Engine {
         Ok(vec![it])
     }
 
+    // ── custom rules ──
+
+    /// Validate a draft and show what it would match. Nothing is changed on disk.
+    pub fn test_rule(&self, d: &crate::user_rules::Draft) -> RuleTest {
+        use crate::user_rules::{check_shape, MAX_MATCHES};
+        const MEASURE: usize = 200;
+        let fail = |e: String, count| RuleTest { ok: false, error: Some(e), count, total: 0, measured: 0, items: vec![], blocked: vec![] };
+        let locs = self.locations();
+        if let Err(e) = check_shape(d, &locs, &self.safety) {
+            return fail(e, 0);
+        }
+        let rule = d.to_rule();
+        let paths = self.rule_paths(&rule);
+        if paths.len() > MAX_MATCHES {
+            return fail(format!("Matches {} items. Narrow it down to at most {MAX_MATCHES}.", paths.len()), paths.len());
+        }
+        let m = self.matcher(&rule);
+        let blocked: Vec<TestItem> = paths
+            .iter()
+            .filter_map(|p| self.safety.check(p, &Allowed::Rule(&m)).err().map(|e| TestItem { path: p.to_string_lossy().into_owned(), size: 0, why: Some(e.to_string()) }))
+            .collect();
+        let mut sized: Vec<TestItem> = self.pool(|| {
+            paths.par_iter().take(MEASURE).map(|p| TestItem { path: p.to_string_lossy().into_owned(), size: fsutil::measure(p).bytes, why: None }).collect()
+        });
+        sized.sort_by(|a, b| b.size.cmp(&a.size));
+        let total = sized.iter().map(|i| i.size).sum();
+        let measured = sized.len();
+        sized.truncate(50);
+        let error = (!blocked.is_empty()).then(|| format!("{} match(es) are protected and can never be cleaned, for example {}. Narrow the paths or add excludes.", blocked.len(), blocked[0].path));
+        RuleTest { ok: blocked.is_empty(), error, count: paths.len(), total, measured, items: sized, blocked: blocked.into_iter().take(20).collect() }
+    }
+
     // ── status (no measuring) ──
 
     pub fn status_all(&self) -> Vec<RuleStatus> {
         let _ = self.locations(); // resolve once before fanning out
-        self.pool(|| self.reg.rules.par_iter().map(|r| self.rule_status(r)).collect())
+        let reg = self.registry();
+        self.pool(|| reg.rules.par_iter().map(|r| self.rule_status(r)).collect())
     }
 
     pub fn rule_status(&self, rule: &Rule) -> RuleStatus {
@@ -670,7 +753,8 @@ impl Engine {
     pub fn find_artifacts(&self, roots: &[PathBuf], disabled: &HashSet<String>, cancel: &AtomicBool, dirs_seen: &std::sync::atomic::AtomicU64) -> (ArtifactScan, Vec<RuleResult>) {
         let roots: Vec<PathBuf> = roots.iter().filter_map(|r| r.canonicalize().ok()).filter(|r| r.is_dir()).collect();
         *self.art_roots.lock().unwrap() = roots.clone();
-        let rules: Vec<&Rule> = self.reg.rules.iter().filter(|r| r.kind == Kind::Artifact && !disabled.contains(&r.id)).collect();
+        let reg = self.registry();
+        let rules: Vec<&Rule> = reg.rules.iter().filter(|r| r.kind == Kind::Artifact && !disabled.contains(&r.id)).collect();
         let procs = self.sys.processes();
         let found: Vec<(usize, PathBuf)> = self.pool(|| {
             roots.par_iter().flat_map(|r| walk_artifacts(r, 0, &rules, cancel, dirs_seen)).collect()
@@ -700,7 +784,7 @@ impl Engine {
                 let names: Vec<&str> = items.iter().map(|i| i.dir.as_str()).collect();
                 let mut running = Vec::new();
                 for it in &items {
-                    if let Some(r) = self.reg.get(&it.rule_id) {
+                    if let Some(r) = reg.get(&it.rule_id) {
                         for b in running_matches(&procs, &r.busy, self.me) {
                             if !running.contains(&b) {
                                 running.push(b);
@@ -757,6 +841,7 @@ impl Engine {
     pub fn plan_with(&self, results: &[RuleResult], ids: &[String], picks: &[String], dry_run: bool, disabled: &HashSet<String>) -> Plan {
         let procs = self.sys.processes();
         let open = self.sys.open_files();
+        let reg = self.registry();
         let mut items: Vec<PlanItem> = Vec::new();
         let mut seen = HashSet::new();
 
@@ -766,7 +851,7 @@ impl Engine {
             }
             let found = results.iter().find_map(|rr| rr.items.iter().find(|i| &i.id == id).map(|i| (rr, i)));
             let Some((rr, item)) = found else { continue };
-            let Some(rule) = self.reg.get(&rr.rule.id) else { continue };
+            let Some(rule) = reg.get(&rr.rule.id) else { continue };
             let mut pi = self.plan_rule_item(rule, item, &procs, &open);
             if disabled.contains(&rule.id) {
                 pi.blocked = Some("This rule is switched off in Settings".into());
@@ -923,6 +1008,7 @@ impl Engine {
     pub fn run(&self, plan: &Plan, opts: &RunOpts, progress: &dyn Fn(usize, usize, &str)) -> Report {
         let ts = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
         let run = format!("{:x}", ts * 1000 + (self.me as u64 % 1000));
+        let reg = self.registry();
         let procs = self.sys.processes();
         let mut report = Report { run: run.clone(), dry_run: plan.dry_run, results: Vec::new(), trashed_bytes: 0, freed_bytes: 0, ok: 0, failed: 0, skipped: 0, undo_log: self.undo.path().to_string_lossy().into_owned() };
         let mut log: Vec<Entry> = Vec::new();
@@ -937,7 +1023,7 @@ impl Engine {
             };
 
             let rule = match &it.source {
-                Some(Source::Rule(id)) => self.reg.get(id),
+                Some(Source::Rule(id)) => reg.get(id),
                 _ => None,
             };
             if let Some(why) = &it.blocked {
@@ -1192,7 +1278,7 @@ mod tests {
     }
 
     fn scan(f: &Fx, rule: &str) -> RuleResult {
-        let r = f.eng.reg.get(rule).unwrap().clone();
+        let r = f.eng.registry().get(rule).unwrap().clone();
         f.eng.scan_rule(&r, &f.sys.processes())
     }
 
@@ -1686,9 +1772,41 @@ mod tests {
         assert_eq!(by("xcode.archives").state, "nothing_found", "no Archives folder in the fixture");
         assert_eq!(by("artifact.node_modules").state, "on_demand");
         f.sys.missing_apps.lock().unwrap().insert("org.mozilla.firefox".into());
-        let ff = f.eng.rule_status(f.eng.reg.get("browser.firefox").unwrap());
+        let reg = f.eng.registry();
+        let ff = f.eng.rule_status(reg.get("browser.firefox").unwrap());
         assert_eq!((ff.state, ff.note.as_deref()), ("not_installed", Some("Firefox is not installed")));
         assert!(!scan(&f, "browser.firefox").available, "scans skip it too");
-        assert_eq!(all.len(), f.eng.reg.rules.len());
+        assert_eq!(all.len(), f.eng.registry().rules.len());
+    }
+
+    #[test]
+    fn custom_rules_are_tested_saved_and_cleaned_like_built_in_ones() {
+        use crate::user_rules::Draft;
+        let f = fx();
+        put(&f.home.join("Downloads/a.dmg"), 300_000);
+        put(&f.home.join("Downloads/b.dmg"), 100_000);
+        put(&f.home.join("Downloads/keep.pdf"), 1_000);
+        let d = Draft { id: "user.old_dmgs".into(), name: "Old DMGs".into(), category: "Custom".into(), paths: vec!["~/Downloads/*.dmg".into()], exclude: vec![], risk: Risk::Review, description: String::new(), busy: vec![] };
+        let t = f.eng.test_rule(&d);
+        assert!(t.ok, "{:?}", t.error);
+        assert_eq!(t.count, 2);
+        assert!(t.items[0].path.ends_with("a.dmg") && t.total >= 400_000);
+        // a draft that would match protected things is refused
+        fs::create_dir_all(f.home.join("Projects/app/.git")).unwrap();
+        let bad = Draft { paths: vec!["~/Projects/*/.git".into()], ..d.clone() };
+        let tb = f.eng.test_rule(&bad);
+        assert!(!tb.ok && tb.blocked.len() == 1, "{tb:?}");
+        // once added it scans, plans and cleans to the Trash through the normal path
+        f.eng.set_custom_rules(&[d.clone()]);
+        let rr = scan(&f, "user.old_dmgs");
+        assert!(rr.rule.custom && rr.items.len() == 2);
+        let plan = f.eng.plan(&[rr.clone()], &ids(&rr), &[], false);
+        assert!(plan.items.iter().all(|i| i.method == Method::Trash && i.blocked.is_none()));
+        assert_eq!(run(&f, &plan, &RunOpts::default()).ok, 2);
+        assert!(f.home.join(".Trash/a.dmg").exists() && f.home.join("Downloads/keep.pdf").exists());
+        // and removing it removes it
+        f.eng.set_custom_rules(&[]);
+        assert!(f.eng.registry().get("user.old_dmgs").is_none());
+        assert!(f.eng.registry().get("xcode.derived_data").is_some(), "built-in rules stay");
     }
 }

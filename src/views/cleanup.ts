@@ -9,7 +9,7 @@ import { artifactsView } from "./artifacts";
 import { disabledRules } from "./settings";
 import { header, View } from "./types";
 
-const ORDER = ["Developer", "Package managers", "Browsers", "App caches", "System"];
+const ORDER = ["Custom", "Developer", "Package managers", "Browsers", "App caches", "System"];
 const riskCls = (r: Risk) => (r === "safe" ? "ok" : r === "review" ? "warn" : "bad");
 
 export function cleanupView(): View {

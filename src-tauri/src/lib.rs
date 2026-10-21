@@ -10,6 +10,7 @@ pub mod scan;
 pub mod sys;
 pub mod sysmon;
 pub mod undo;
+pub mod user_rules;
 
 use tauri::{AppHandle, Manager, RunEvent, WebviewWindowBuilder, WindowEvent};
 
@@ -62,6 +63,12 @@ pub fn run() {
             commands::rules_list,
             commands::locations_info,
             commands::rules_status,
+            commands::rules_custom,
+            commands::rule_test,
+            commands::rule_save,
+            commands::rule_delete,
+            commands::rules_export,
+            commands::rules_import,
             commands::locations_redetect,
             commands::apps_quit,
             commands::ui_get_all,

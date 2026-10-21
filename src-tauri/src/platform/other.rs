@@ -38,6 +38,12 @@ impl Platform for Generic {
     fn pick_folder(&self) -> Option<PathBuf> {
         None
     }
+    fn pick_save_file(&self, _: &str) -> Option<PathBuf> {
+        None
+    }
+    fn pick_file(&self) -> Option<PathBuf> {
+        None
+    }
 }
 
 impl ProcessInfo for Generic {
