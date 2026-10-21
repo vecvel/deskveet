@@ -160,7 +160,7 @@ export function storageView(): View {
         const kind = !r ? "other" : r.kind === "dir" ? "dir" : r.kind === "file" ? "file" : "other";
         const el = h("div", {
           class: `cell ${kind}`, role: "listitem", tabindex: r?.kind === "dir" ? "0" : null,
-          style: `left:${q.x}px;top:${q.y}px;width:${Math.max(0, q.w - 2)}px;height:${Math.max(0, q.h - 2)}px;--c:${kind === "file" ? "var(--slate)" : ["var(--accent)", "var(--sand)", "var(--ok)"][i % 3]};--k:${Math.max(16, 40 - i * 1.4).toFixed(0)}%`,
+          style: `left:${q.x}px;top:${q.y}px;width:${Math.max(0, q.w - 2)}px;height:${Math.max(0, q.h - 2)}px;--c:${kind === "file" ? "var(--slate)" : ["var(--accent)", "var(--sand)", "var(--ok)"][i % 3]};--a:${(Math.max(16, 40 - i * 1.4) / 100).toFixed(2)}`,
           title: r ? `${r.name}\n${tilde(r.path)}\n${bytes(r.size)}` : `${sorted.length - MAP_MAX} more items · ${bytes(rest)}`,
           onclick: () => r?.kind === "dir" && void go(r.path),
           onkeydown: (e: KeyboardEvent) => { if (e.key === "Enter" && r?.kind === "dir") void go(r.path); },

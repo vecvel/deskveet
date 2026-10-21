@@ -50,6 +50,18 @@ icon rail.
 states (selected, disabled, invalid) are shown. Nothing depends on hover. This hurts keyboard users, who get no
 visible focus; if you want it back, add one `:focus-visible` rule to `base.css`.
 
+## Supported Macs
+
+macOS 13 Ventura or later, on Apple Silicon and Intel. `scripts/build.sh` makes one universal `.app` that
+contains both. The CSS uses only literal colours (no `color-mix()`), so it looks the same in every WebKit that
+macOS 13 can have. Tool paths are found on each Mac rather than assumed: Homebrew under `/opt/homebrew` or
+`/usr/local`, Xcode through `xcode-select`, and caches through their environment variables or the tool itself
+(`src-tauri/src/locate.rs`).
+
+Sharing a build: copies that aren't signed with a Developer ID are stopped by Gatekeeper the first time. To open
+one, right-click the app, choose Open, then confirm. Signing with a Developer ID and notarising (needs a paid
+Apple developer account) removes this step; the build works without it.
+
 ## Memory and size
 
 | | |
@@ -66,8 +78,8 @@ Measure it yourself: `scripts/measure.sh` (footprint of the app plus its WebKit 
 ```bash
 pnpm install
 pnpm tauri dev                 # run
-cd src-tauri && cargo test     # 54 tests, all against temp-dir fixtures with a fake system layer
-scripts/build.sh               # release .app + .dmg, signed with "Deskveet Development" if present
+cd src-tauri && cargo test     # 87 tests, all against temp-dir fixtures with a fake system layer
+scripts/build.sh               # universal release .app + .dmg (--native: this Mac only), signed with "Deskveet Development" if present
 ```
 
 Dev helpers in `src-tauri/examples/` run the real engine read-only (`cleanup_dry`, `scan_bench`,
