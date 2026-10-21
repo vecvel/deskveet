@@ -801,7 +801,9 @@ impl Engine {
     /// Why the rule doesn't apply on this Mac: its app or tool is missing.
     fn not_installed(&self, rule: &Rule) -> Option<String> {
         if let Some(app) = &rule.app {
-            if self.sys.app_installed(app) == Some(false) {
+            // "a|b|c": any of these apps counts (Firefox, Firefox Developer Edition, Nightly).
+            let found = app.split('|').map(|a| self.sys.app_installed(a.trim()));
+            if found.clone().all(|f| f == Some(false)) {
                 return Some(format!("{} is not installed", rule.name.trim_end_matches(" cache")));
             }
         }
@@ -1850,8 +1852,11 @@ mod tests {
         assert_eq!(by("android.gradle_caches").state, "location_ignored");
         assert_eq!(by("xcode.archives").state, "nothing_found", "no Archives folder in the fixture");
         assert_eq!(by("artifact.node_modules").state, "on_demand");
-        f.sys.missing_apps.lock().unwrap().insert("org.mozilla.firefox".into());
         let reg = f.eng.registry();
+        // Firefox's rule accepts Firefox, Developer Edition or Nightly: one is enough
+        f.sys.missing_apps.lock().unwrap().extend(["org.mozilla.firefox".to_string(), "org.mozilla.nightly".to_string()]);
+        assert_ne!(f.eng.rule_status(reg.get("browser.firefox").unwrap()).state, "not_installed", "Developer Edition counts");
+        f.sys.missing_apps.lock().unwrap().insert("org.mozilla.firefoxdeveloperedition".into());
         let ff = f.eng.rule_status(reg.get("browser.firefox").unwrap());
         assert_eq!((ff.state, ff.note.as_deref()), ("not_installed", Some("Firefox is not installed")));
         assert!(!scan(&f, "browser.firefox").available, "scans skip it too");

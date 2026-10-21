@@ -31,7 +31,7 @@
 # Any candidate that is missing, or is home, a protected folder or a system path, is ignored.
 
 schema_version = 2
-rules_version = "2026.10.2"
+rules_version = "2026.10.3"
 
 [[location]]
 id = "derived_data"
@@ -108,6 +108,27 @@ id = "brew_cache"
 cmd = ["brew", "--cache"]
 env = ["HOMEBREW_CACHE"]
 default = "~/Library/Caches/Homebrew"
+
+[[location]]
+id = "bun_cache"
+env = ["BUN_INSTALL_CACHE_DIR", "BUN_INSTALL/install/cache"]
+default = "~/.bun/install/cache"
+
+[[location]]
+id = "deno_dir"
+env = ["DENO_DIR"]
+default = "~/Library/Caches/deno"
+
+[[location]]
+id = "maven_repo"
+env = ["MAVEN_REPO_LOCAL"]
+default = "~/.m2/repository"
+
+[[location]]
+id = "conda_base"
+cmd = ["conda", "info", "--base"]
+env = ["CONDA_PREFIX"]
+default = "~/miniconda3"
 
 [[location]]
 id = "xdg_cache"
@@ -474,7 +495,7 @@ busy = ["Safari"]
 
 [[rule]]
 id = "browser.firefox"
-app = "org.mozilla.firefox"
+app = "org.mozilla.firefox|org.mozilla.firefoxdeveloperedition|org.mozilla.nightly"
 name = "Firefox cache"
 category = "Browsers"
 paths = ["~/Library/Caches/Firefox/Profiles/*/cache2", "~/Library/Caches/Firefox/Profiles/*/startupCache"]
@@ -483,6 +504,215 @@ description = "Deletes cached web content. Pages load a little slower once."
 regenerates = "Refilled while browsing."
 method = "trash"
 busy = ["firefox"]
+
+[[rule]]
+id = "browser.arc"
+name = "Arc cache"
+category = "Browsers"
+app = "company.thebrowser.Browser"
+paths = [
+  "~/Library/Caches/Arc/*",
+  "~/Library/Application Support/Arc/User Data/*/Cache",
+  "~/Library/Application Support/Arc/User Data/*/Code Cache",
+  "~/Library/Application Support/Arc/User Data/*/GPUCache",
+]
+risk = "safe"
+description = "Deletes cached web content. Pages load a little slower once. You stay signed in; profiles, cookies and history are never touched."
+regenerates = "Refilled while browsing."
+method = "trash"
+busy = ["Arc"]
+
+[[rule]]
+id = "browser.edge"
+name = "Microsoft Edge cache"
+category = "Browsers"
+app = "com.microsoft.edgemac"
+paths = [
+  "~/Library/Caches/Microsoft Edge/*",
+  "~/Library/Application Support/Microsoft Edge/*/Cache",
+  "~/Library/Application Support/Microsoft Edge/*/Code Cache",
+  "~/Library/Application Support/Microsoft Edge/*/GPUCache",
+]
+risk = "safe"
+description = "Deletes cached web content. Pages load a little slower once. You stay signed in; profiles, cookies and history are never touched."
+regenerates = "Refilled while browsing."
+method = "trash"
+busy = ["Microsoft Edge"]
+
+[[rule]]
+id = "browser.vivaldi"
+name = "Vivaldi cache"
+category = "Browsers"
+app = "com.vivaldi.Vivaldi"
+paths = [
+  "~/Library/Caches/Vivaldi/*",
+  "~/Library/Application Support/Vivaldi/*/Cache",
+  "~/Library/Application Support/Vivaldi/*/Code Cache",
+  "~/Library/Application Support/Vivaldi/*/GPUCache",
+]
+risk = "safe"
+description = "Deletes cached web content. Pages load a little slower once. You stay signed in; profiles, cookies and history are never touched."
+regenerates = "Refilled while browsing."
+method = "trash"
+busy = ["Vivaldi"]
+
+[[rule]]
+id = "browser.chromium"
+name = "Chromium cache"
+category = "Browsers"
+app = "org.chromium.Chromium"
+paths = [
+  "~/Library/Caches/Chromium/*",
+  "~/Library/Application Support/Chromium/*/Cache",
+  "~/Library/Application Support/Chromium/*/Code Cache",
+  "~/Library/Application Support/Chromium/*/GPUCache",
+]
+risk = "safe"
+description = "Deletes cached web content. Pages load a little slower once. You stay signed in; profiles, cookies and history are never touched."
+regenerates = "Refilled while browsing."
+method = "trash"
+busy = ["Chromium"]
+
+[[rule]]
+id = "browser.opera"
+name = "Opera cache"
+category = "Browsers"
+app = "com.operasoftware.Opera"
+paths = [
+  "~/Library/Caches/com.operasoftware.Opera/*",
+  "~/Library/Application Support/com.operasoftware.Opera/Cache",
+  "~/Library/Application Support/com.operasoftware.Opera/Code Cache",
+  "~/Library/Application Support/com.operasoftware.Opera/GPUCache",
+]
+risk = "safe"
+description = "Deletes cached web content. Pages load a little slower once. You stay signed in; profiles, cookies and history are never touched."
+regenerates = "Refilled while browsing."
+method = "trash"
+busy = ["Opera"]
+
+# ───────────────────────────── More developer tools ─────────────────────────────
+
+[[rule]]
+id = "bun.cache"
+name = "Bun install cache"
+category = "Package managers"
+paths = ["{bun_cache}"]
+detect = "command -v bun"
+risk = "safe"
+description = "Deletes Bun's global package cache. The next install downloads packages again."
+regenerates = "Refilled by bun install."
+method = "tool"
+tool = ["bun", "pm", "cache", "rm"]
+busy = ["bun"]
+
+[[rule]]
+id = "deno.cache"
+name = "Deno cache"
+category = "Package managers"
+paths = ["{deno_dir}/*"]
+detect = "command -v deno"
+risk = "safe"
+description = "Deletes downloaded modules, npm packages and compiled code Deno keeps. Scripts download what they need again."
+regenerates = "Refilled the next time you run deno."
+method = "trash"
+busy = ["deno"]
+
+[[rule]]
+id = "maven.repository"
+name = "Maven local repository"
+category = "Package managers"
+paths = ["{maven_repo}/*"]
+risk = "review"
+description = "Deletes every downloaded Java library. Builds download them again, which needs network access and can take a while."
+regenerates = "Re-downloaded by mvn or Gradle on the next build."
+method = "trash"
+busy = ["java", "mvn"]
+
+[[rule]]
+id = "conda.pkgs"
+name = "Conda package cache"
+category = "Package managers"
+paths = ["{conda_base}/pkgs"]
+detect = "command -v conda"
+risk = "safe"
+description = "`conda clean --all` removes unused packages, tarballs and index caches. Installed environments keep working."
+regenerates = "Downloaded again when an environment needs a package."
+method = "tool"
+tool = ["conda", "clean", "--all", "-y"]
+busy = ["conda", "python"]
+
+[[rule]]
+id = "jetbrains.caches"
+name = "JetBrains IDE caches"
+category = "Developer"
+paths = ["~/Library/Caches/JetBrains/*"]
+risk = "review"
+description = "Deletes indexes and caches of IntelliJ IDEA, PyCharm, WebStorm, GoLand and friends. The next start re-indexes your projects, which takes a while. Settings and plugins are kept."
+regenerates = "Rebuilt when the IDE opens a project."
+method = "trash"
+busy = ["idea", "pycharm", "webstorm", "goland", "clion", "rider", "phpstorm", "rubymine", "datagrip"]
+
+[[rule]]
+id = "androidstudio.caches"
+name = "Android Studio caches"
+category = "Developer"
+paths = ["~/Library/Caches/Google/AndroidStudio*"]
+risk = "review"
+description = "Deletes Android Studio's indexes and caches. The next start re-indexes your projects. Settings are kept."
+regenerates = "Rebuilt when Android Studio opens a project."
+method = "trash"
+busy = ["studio", "Android Studio"]
+
+[[rule]]
+id = "vscode.caches"
+name = "VS Code caches"
+category = "Developer"
+app = "com.microsoft.VSCode"
+paths = [
+  "~/Library/Application Support/Code/Cache",
+  "~/Library/Application Support/Code/CachedData",
+  "~/Library/Application Support/Code/CachedExtensionVSIXs",
+  "~/Library/Application Support/Code/Code Cache",
+  "~/Library/Application Support/Code/GPUCache",
+]
+risk = "safe"
+description = "Deletes VS Code's web and extension download caches. Settings, extensions and workspaces are kept."
+regenerates = "Rebuilt while VS Code runs."
+method = "trash"
+busy = ["Code", "Code Helper"]
+
+[[rule]]
+id = "swiftpm.cache"
+name = "Swift Package Manager cache"
+category = "Developer"
+paths = ["~/Library/Caches/org.swift.swiftpm/*"]
+risk = "safe"
+description = "Deletes downloaded Swift packages. Xcode and swift build fetch them again."
+regenerates = "Re-downloaded on the next package resolve."
+method = "trash"
+busy = ["Xcode", "xcodebuild", "swift-build"]
+
+[[rule]]
+id = "carthage.cache"
+name = "Carthage cache"
+category = "Developer"
+paths = ["~/Library/Caches/org.carthage.CarthageKit/*"]
+risk = "safe"
+description = "Deletes downloaded and built Carthage dependencies."
+regenerates = "carthage bootstrap fetches them again."
+method = "trash"
+busy = ["carthage"]
+
+[[rule]]
+id = "unity.cache"
+name = "Unity caches"
+category = "Developer"
+paths = ["~/Library/Unity/cache/*", "~/Library/Caches/com.unity3d.UnityEditor*"]
+risk = "review"
+description = "Deletes Unity's package and asset caches. Projects re-import what they need on the next open."
+regenerates = "Rebuilt when Unity opens a project."
+method = "trash"
+busy = ["Unity", "Unity Hub"]
 
 # ───────────────────────────── App caches & System ─────────────────────────────
 
@@ -502,6 +732,15 @@ exclude = [
   "~/Library/Caches/pip",
   "~/Library/Caches/go-build",
   "~/Library/Caches/*.ShipIt",
+  "~/Library/Caches/Arc",
+  "~/Library/Caches/Microsoft Edge",
+  "~/Library/Caches/Vivaldi",
+  "~/Library/Caches/com.operasoftware.Opera",
+  "~/Library/Caches/Chromium",
+  "~/Library/Caches/JetBrains",
+  "~/Library/Caches/deno",
+  "~/Library/Caches/org.swift.swiftpm",
+  "~/Library/Caches/org.carthage.CarthageKit",
 ]
 risk = "review"
 description = "Each app's cache folder is one item. Apps recreate caches, but some start slower or forget temporary state (for example thumbnails or offline data)."

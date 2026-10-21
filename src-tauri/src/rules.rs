@@ -215,6 +215,9 @@ mod tests {
             "artifact.node_modules", "rust.cargo_registry", "artifact.rust_target", "go.build_cache", "python.pip_cache",
             "artifact.pycache", "brew.cache", "cocoapods.cache", "browser.chrome", "browser.brave", "browser.safari",
             "browser.firefox", "appcache.library_caches", "system.user_logs", "system.updater_caches", "system.trash", "docker.prune",
+            "browser.arc", "browser.edge", "browser.vivaldi", "browser.opera", "browser.chromium", "bun.cache", "deno.cache",
+            "maven.repository", "conda.pkgs", "jetbrains.caches", "androidstudio.caches", "vscode.caches", "swiftpm.cache",
+            "carthage.cache", "unity.cache",
         ] {
             assert!(reg.get(id).is_some(), "missing rule {id}");
         }

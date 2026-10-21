@@ -496,7 +496,14 @@ mod tests {
         let h = s.home().to_path_buf();
         let reg = Registry::macos().unwrap();
         let base = h.join("Library/Application Support");
-        for (rule, dir) in [("browser.chrome", "Google/Chrome"), ("browser.brave", "BraveSoftware/Brave-Browser")] {
+        for (rule, dir) in [
+            ("browser.chrome", "Google/Chrome"),
+            ("browser.brave", "BraveSoftware/Brave-Browser"),
+            ("browser.arc", "Arc/User Data"),
+            ("browser.edge", "Microsoft Edge"),
+            ("browser.vivaldi", "Vivaldi"),
+            ("browser.chromium", "Chromium"),
+        ] {
             let m = RuleMatcher::new(reg.get(rule).unwrap(), s.home());
             for secret in ["Default/Cookies", "Default/History", "Default/Login Data", "Default/Bookmarks", "Default", "Local State", "Default/Extensions"] {
                 let p = base.join(dir).join(secret);
@@ -507,6 +514,25 @@ mod tests {
             let cache = base.join(dir).join("Default/Cache");
             fs::create_dir_all(&cache).unwrap();
             assert!(s.check(&cache, &Allowed::Rule(&m)).is_ok(), "{rule} cache folder");
+        }
+        // Opera keeps its profile directly in its support folder.
+        let m = RuleMatcher::new(reg.get("browser.opera").unwrap(), s.home());
+        let opera = base.join("com.operasoftware.Opera");
+        for secret in ["Cookies", "History", "Login Data", "Bookmarks"] {
+            let p = opera.join(secret);
+            fs::create_dir_all(opera.as_path()).unwrap();
+            fs::write(&p, b"x").unwrap();
+            assert!(s.check(&p, &Allowed::Rule(&m)).is_err(), "opera must not match {secret}");
+        }
+        fs::create_dir_all(opera.join("Cache")).unwrap();
+        assert!(s.check(&opera.join("Cache"), &Allowed::Rule(&m)).is_ok());
+        // VS Code: caches yes, settings and extensions no
+        let m = RuleMatcher::new(reg.get("vscode.caches").unwrap(), s.home());
+        for keep in ["User/settings.json", "User/workspaceStorage", "extensions"] {
+            let p = base.join("Code").join(keep);
+            fs::create_dir_all(p.parent().unwrap()).unwrap();
+            fs::create_dir_all(&p).unwrap_or(());
+            assert!(s.check(&p, &Allowed::Rule(&m)).is_err(), "vscode must not match {keep}");
         }
         // Firefox profile data (places.sqlite, cookies.sqlite) lives in Application Support, not Caches.
         let m = RuleMatcher::new(reg.get("browser.firefox").unwrap(), s.home());
