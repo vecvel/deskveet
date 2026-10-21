@@ -1,112 +1,155 @@
-# Deskveet
+<p align="center">
+  <img src="scripts/icon.png" width="128" height="128" alt="Deskveet icon">
+</p>
 
-A light, fast, privacy-first disk and system cleanup app for macOS (Rust + Tauri 2, plain TypeScript UI).
-Fully offline: no network code, no telemetry, no accounts. The content security policy forbids every
-connection, and nothing in the dependency list opens a socket.
+<h1 align="center">Deskveet</h1>
+
+<p align="center">
+  A small, fast and private disk cleaner for the Mac.<br>
+  It shows where your space went, cleans what is safe to clean, and never talks to the internet.
+</p>
+
+<p align="center">
+  <a href="https://github.com/vecvel/deskveet/releases/latest"><img src="https://img.shields.io/github/v/release/vecvel/deskveet?color=d97757&label=release" alt="Latest release"></a>
+  <a href="https://github.com/vecvel/deskveet/actions/workflows/release.yml"><img src="https://github.com/vecvel/deskveet/actions/workflows/release.yml/badge.svg" alt="Release build"></a>
+  <img src="https://img.shields.io/badge/macOS-13%2B-1c1b19?logo=apple&logoColor=white" alt="macOS 13 or later">
+  <img src="https://img.shields.io/badge/Apple%20Silicon%20%2B%20Intel-universal-5d7aa8" alt="Universal app">
+  <img src="https://img.shields.io/badge/size-7%20MB-6b8b59" alt="App size about 7 MB">
+  <img src="https://img.shields.io/badge/network-none-9bc27f" alt="No network access">
+  <img src="https://img.shields.io/badge/built%20with-Rust%20%2B%20Tauri%202-b45f43?logo=rust&logoColor=white" alt="Built with Rust and Tauri 2">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-proprietary-6c685f" alt="Proprietary license"></a>
+</p>
+
+---
+
+## Why Deskveet
+
+Most cleaners either do too little or ask you to trust them with everything. Deskveet sits in between. It knows
+the folders that developer tools, browsers and apps fill up (Xcode, simulators, Gradle, npm, Cargo, Flutter,
+Homebrew and about fifty more), tells you what each one is and how it comes back, and only cleans after you have
+seen the list. Anything it is not sure about, it leaves alone.
+
+It is also light. The whole app is about 7 MB, idles at around 30 MB of memory with the window closed, and
+starts in well under a second.
 
 ## What it does
 
-- **Overview**: disks (used / purgeable / free, warning above 90%), RAM (app, wired, compressed, swap, pressure),
-  CPU per core and load, top processes. Live while the window is visible, silent when it is hidden.
-- **Processes**: sortable, filterable, "Open in Finder", Quit / Force Quit with confirmation. System, root,
-  other users' processes and a hard-coded list (`kernel_task`, `WindowServer`, `launchd`, ...) are never offered.
-- **Apps**: running apps like the macOS Force Quit window, with icon, memory and CPU (summed over every process
-  macOS holds the app responsible for), and storage (the app bundle plus its caches, support files, web data and
-  saved state). Quit asks the app like Cmd+Q does; Force Quit stops it after a confirmation. Select several to
-  quit them together. Finder, the Dock and Deskveet itself are protected.
-- **Storage**: parallel scan of any folder, sizes per folder, drill-down, treemap, cached on disk with an
-  incremental re-scan. Every row has Reveal in Finder, Open, Copy path, Quick Look and Move to Trash.
-- **Cleanup**: 33 rules in [`rules/macos.toml`](rules/macos.toml) (Xcode, simulators, Android, Flutter, Node, Rust,
-  Go, Python, Homebrew, CocoaPods, browsers, app caches, logs, Trash). Each rule says what happens if you delete
-  it and how it comes back. Always preview first, then confirm. Dry run, undo log, Restore from the log.
-- **Rules on/off**: Settings → Cleanup rules lists every rule with a switch; rules that are off are not scanned
-  and their items are refused by the preview.
-- **Project artifacts**: `node_modules`, `target`, `build`, `.dart_tool`, `.gradle`, `__pycache__`, `DerivedData`
-  below folders you choose, grouped by project with idle time and one-click "select stale".
+- **Overview.** Disks (used, purgeable, free), memory and memory pressure, CPU per core and the processes using
+  the most. Live while you look at it, quiet when you don't.
+- **Storage.** A fast parallel scan of any folder, sizes per folder, drill down, and a treemap you can scroll
+  through so even the small folders get a label. Every item can be revealed in Finder, opened, copied, previewed
+  with Quick Look or moved to the Trash.
+- **Cleanup.** 56 built-in rules in [`rules/macos.toml`](rules/macos.toml). Each one explains what happens if you
+  delete its items and how they come back. You always see a preview first, then confirm. There is a dry run, an
+  undo log and a Restore button.
+- **Custom rules.** Add your own (for example `~/Downloads/*.dmg`) with a live preview of what they match.
+  Custom rules only ever move things to the Trash, and the same safety checks apply to them.
+- **Tracking.** Size history per rule, an alert when something grows past a size you pick or the disk gets
+  low, and optional daily or weekly cleaning of the safe rules.
+- **Menu bar mode.** Free space, memory pressure, the next scheduled clean and "Clean safe caches now" from the
+  menu bar, with no Dock icon and the window closed.
+- **Apps and processes.** The running apps with their memory, CPU and storage, and a process list with Quit and
+  Force Quit. System processes and Finder are never offered.
+- **Project artifacts.** `node_modules`, `target`, `build`, `.dart_tool`, `.gradle` and friends below folders you
+  choose, grouped by project, with the idle ones easy to select.
 
-## Safety model (`src-tauri/src/safety.rs`)
+## Safe by design
 
-Nothing is acted on unless it passes **both** gates, on the real path (symlinked parents resolved):
+Nothing is touched unless it passes two checks on its real path, with symlinks resolved.
 
-1. **Allowlist**: matched by the rule that claims it (glob, or folder name + marker file + chosen root), or
-   picked explicitly by the user (always to the Trash).
-2. **Blocklist** (always wins): `/`, `/System`, `/usr`, `/Library`, your home, Desktop/Documents/Pictures/Movies/Music
-   roots, iCloud Drive, Photos/Music/TV libraries, every `.git` folder, keychains, `~/.ssh`, `~/.gnupg`, Mail,
-   Messages, Safari data, group containers, ...
+1. **It was asked for.** Either a rule matched it, or you picked it yourself (and then it always goes to the
+   Trash).
+2. **It is not protected.** The blocklist always wins: `/`, `/System`, `/usr`, `/Library`, your home folder,
+   the roots of Desktop, Documents, Pictures, Movies and Music, iCloud Drive, the Photos and Music libraries,
+   every `.git` folder, keychains, `~/.ssh`, `~/.gnupg`, Mail, Messages and Safari data.
 
-The UI never sends paths for rule-based cleaning, only ids the engine produced. Running browsers block their
-cache rules, booted simulators are never touched, open files and running tools need an explicit tick, and the
-Trash is only erased after a second confirmation. No sudo, ever: rules that need admin show the command instead.
+Browsers that are running block their own cache rules, booted simulators are never touched, files that are open
+need an extra tick, and emptying the Trash needs a second confirmation. Deskveet never uses sudo. When a rule
+needs admin rights, it shows you the command to run yourself.
 
-## Design system
+The checks live in [`src-tauri/src/safety.rs`](src-tauri/src/safety.rs) and are covered by tests that run against
+temporary folders, never your own.
 
-All styling lives in `src/styles/`: `tokens.css` (colour, text levels, the single near-transparent border
-token, type, spacing, radii, themes), `base.css` (reset, typography, utilities) and `components.css`.
-Restyle the app by editing `tokens.css`. System font everywhere, a warm charcoal / parchment palette with a
-terracotta accent, light and dark follow macOS (or Settings → Theme). Below 920 px the sidebar becomes an
-icon rail.
+## Private by default
 
-**Interaction (a deliberate choice):** controls have no hover, focus-ring or press styling; only functional
-states (selected, disabled, invalid) are shown. Nothing depends on hover. This hurts keyboard users, who get no
-visible focus; if you want it back, add one `:focus-visible` rule to `base.css`.
+Deskveet has no network code, no telemetry and no accounts. Its content security policy blocks every connection
+and none of its dependencies opens a socket. Cleanup tools you choose to run, such as `brew` or `npm`, are
+separate programs and behave as they always do.
 
-## Supported Macs
+## Install
 
-macOS 13 Ventura or later, on Apple Silicon and Intel. `scripts/build.sh` makes one universal `.app` that
-contains both. The CSS uses only literal colours (no `color-mix()`), so it looks the same in every WebKit that
-macOS 13 can have. Tool paths are found on each Mac rather than assumed: Homebrew under `/opt/homebrew` or
-`/usr/local`, Xcode through `xcode-select`, and caches through their environment variables or the tool itself
-(`src-tauri/src/locate.rs`).
+Download the `.dmg` from the [latest release](https://github.com/vecvel/deskveet/releases/latest), open it and drag
+Deskveet to Applications. It runs on macOS 13 Ventura or later, on Apple Silicon and Intel.
 
-Sharing a build: copies that aren't signed with a Developer ID are stopped by Gatekeeper the first time. To open
-one, right-click the app, choose Open, then confirm. Signing with a Developer ID and notarising (needs a paid
-Apple developer account) removes this step; the build works without it.
+If a release was not notarised, macOS will stop it the first time. Right-click the app, choose Open, and confirm.
 
-## The mark
+Deskveet works without Full Disk Access, but a few folders (Mail, some app containers) can only be measured with
+it. The app tells you when that is the case and opens the right settings page.
 
-A planet with a wipe through it, inside an orbit open for one quarter, with dust leaving through the opening.
-Every measure comes from one module (m = 2 on a 32 grid): planet 3m, orbit 5.5m with a 1m stroke, wipe 1m
-at -45° (pointing at the middle of the opening), dust radii and opacities m·φ⁻ᵏ and φ⁻ᵏ with ½m gaps along
-the orbit. `scripts/logo.py` holds the geometry and writes the app icon, the menu bar template icon and the
-sidebar mark; `scripts/icons.sh` renders every size.
-
-## Memory and size
-
-| | |
-|---|---|
-| `.app` bundle | about 2.5 MB (Rust binary 2.6 MB, frontend 12 KB JS + 9 KB CSS) |
-| Window open | Rust process about 25 MB plus WebKit helpers about 70 MB (WKWebView is the floor) |
-| Window closed | Rust process only; the window is released after it has been hidden for a while (Settings) |
-| Scan of 3.4M files | about 36 MB peak, 44 s cold, 12 to 18 s incremental |
-
-Measure it yourself: `scripts/measure.sh` (footprint of the app plus its WebKit helpers).
-
-## Develop
+## Build it yourself
 
 ```bash
 pnpm install
-pnpm tauri dev                 # run
-cd src-tauri && cargo test     # 87 tests, all against temp-dir fixtures with a fake system layer
-scripts/build.sh               # universal release .app + .dmg (--native: this Mac only), signed with "Deskveet Development" if present
-scripts/icons.sh               # regenerate the app, menu bar and sidebar icons from scripts/logo.py
+pnpm tauri dev                 # run in development
+cd src-tauri && cargo test     # the test suite, all against temporary folders
+scripts/build.sh               # universal .app and .dmg (add --native for this Mac only)
+scripts/icons.sh               # regenerate every icon from scripts/logo.py
 ```
 
-Dev helpers in `src-tauri/examples/` run the real engine read-only (`cleanup_dry`, `scan_bench`,
-`artifacts_dry`) or against a throwaway file you create (`trash_smoke`, `artifact_smoke`).
+`scripts/build.sh` signs with the best certificate it finds: a Developer ID Application certificate, then a
+self-signed one called `Deskveet Development`, then ad-hoc. A stable signature matters because macOS ties Full
+Disk Access to it. With an ad-hoc build the permission silently stops applying after every rebuild.
 
-macOS ties privacy permissions (Full Disk Access, Desktop/Documents access) to the app's code signature. An
-ad-hoc signed build looks like a new app every time, so a permission you granted to an earlier build
-silently stops applying. Create a free self-signed certificate once and `scripts/build.sh` will use it:
+If you have no Developer ID, a free self-signed certificate works for your own builds:
 
-1. Keychain Access → Certificate Assistant → Create a Certificate…
-2. Name `Deskveet Development`, Identity Type *Self-Signed Root*, Certificate Type *Code Signing* → Create.
-3. Run `scripts/build.sh`, then in System Settings → Privacy & Security → Full Disk Access remove Deskveet
-   with − and add the new build once. From then on it stays granted across rebuilds.
+1. Open Keychain Access, then Certificate Assistant, then Create a Certificate.
+2. Name it `Deskveet Development`, Identity Type *Self-Signed Root*, Certificate Type *Code Signing*.
+3. Build, then remove and re-add Deskveet once under Privacy & Security, Full Disk Access.
 
-Deskveet checks access live (`fda_status`) whenever the window comes back to the front, so the banners
-reflect the build that is actually running.
+### Releases
 
-## Portability
+Pushing a tag like `v1.0.0` runs [the release workflow](.github/workflows/release.yml). It tests, builds the
+universal app and publishes the `.dmg` and a zipped `.app` with checksums. Signing and notarisation switch on
+when these repository secrets are set:
 
-OS-specific code sits behind the `Platform` and `ProcessInfo` traits (`src-tauri/src/platform`) and the `Sys`
-trait for side effects (`src-tauri/src/sys.rs`). A Windows or Linux port adds a module and a rules file.
+| Secret | What it is |
+|---|---|
+| `APPLE_CERTIFICATE` | the Developer ID Application certificate exported as `.p12`, base64 encoded |
+| `APPLE_CERTIFICATE_PASSWORD` | the password you chose when exporting it |
+| `APPLE_SIGNING_IDENTITY` | the certificate name, like `Developer ID Application: Name (TEAMID)` |
+| `APPLE_API_KEY_ID` | App Store Connect API key ID |
+| `APPLE_API_ISSUER` | the issuer ID from the App Store Connect keys page |
+| `APPLE_API_KEY_P8` | the contents of the `AuthKey_XXXX.p8` file |
+
+## How it is built
+
+Rust and Tauri 2 for the engine, plain TypeScript for the interface (no framework, about 70 KB). The
+operating system specific parts sit behind small traits in [`src-tauri/src/platform`](src-tauri/src/platform),
+so a Windows or Linux version needs a platform module and a rules file rather than a rewrite.
+
+| | |
+|---|---|
+| App size | about 7 MB universal (3.2 MB for Apple Silicon alone) |
+| Memory, window open | about 25 MB plus about 70 MB for the system web view |
+| Memory, window closed | about 30 MB; the window is released after it has been hidden for a while |
+| Scanning 3.4 million files | about 36 MB at peak, around 40 seconds the first time and 15 seconds after |
+
+The styling is in [`src/styles`](src/styles), with every colour, size and radius in one file of tokens. The icon
+is pure geometry: a planet with a wipe through it, inside an orbit that is open for one quarter, with dust leaving
+through the gap. Every measure comes from one module on a 32 unit grid and the golden ratio. The numbers are in
+[`scripts/logo.py`](scripts/logo.py).
+
+## License
+
+Deskveet is proprietary software. You are welcome to read the code, but you may not copy, modify or
+redistribute it without written permission. See [LICENSE](LICENSE). Taking part in this project means following
+the [code of conduct](CODE_OF_CONDUCT.md).
+
+## Star history
+
+<a href="https://star-history.com/#vecvel/deskveet&Date">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=vecvel/deskveet&type=Date&theme=dark">
+    <img alt="Star history chart" src="https://api.star-history.com/svg?repos=vecvel/deskveet&type=Date">
+  </picture>
+</a>

@@ -1,0 +1,109 @@
+# Builds the universal macOS app and publishes it as a GitHub release.
+#
+# Runs when a version tag is pushed (git tag v1.0.0 && git push origin v1.0.0), or by hand from the Actions tab.
+# Signing and notarisation are optional. Without the secrets below the release is ad-hoc signed and people
+# open it with right-click > Open the first time.
+#
+#   APPLE_CERTIFICATE            base64 of the Developer ID Application certificate exported as .p12
+#   APPLE_CERTIFICATE_PASSWORD   the password chosen when exporting it
+#   APPLE_SIGNING_IDENTITY       e.g. "Developer ID Application: Your Name (TEAMID)"
+#   APPLE_API_KEY_ID             App Store Connect API key ID (the part after AuthKey_ in the file name)
+#   APPLE_API_ISSUER             the issuer ID shown on the App Store Connect keys page
+#   APPLE_API_KEY_P8             the contents of the AuthKey_XXXX.p8 file
+
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to release (must match the version in src-tauri/tauri.conf.json, e.g. v1.0.0)"
+        required: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  macos:
+    runs-on: macos-14
+    timeout-minutes: 60
+    env:
+      TAG: ${{ github.event.inputs.tag || github.ref_name }}
+      HAS_API_KEY: ${{ secrets.APPLE_API_KEY_P8 != '' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check the tag matches the app version
+        run: |
+          VERSION=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          if [ "$TAG" != "v$VERSION" ]; then
+            echo "::error::Tag $TAG does not match version $VERSION in tauri.conf.json"; exit 1
+          fi
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Rust targets
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - run: pnpm install --frozen-lockfile
+      - name: Tests
+        run: |
+          pnpm typecheck
+          cd src-tauri && cargo test --release
+
+      - name: Notarisation key
+        if: ${{ env.HAS_API_KEY == 'true' }}
+        env:
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/keys"
+          printf '%s' "$APPLE_API_KEY_P8" > "$RUNNER_TEMP/keys/AuthKey.p8"
+          echo "APPLE_API_KEY_PATH=$RUNNER_TEMP/keys/AuthKey.p8" >> "$GITHUB_ENV"
+
+      - name: Build
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: |
+          # an unset secret arrives as an empty string; Tauri should not see those at all
+          for v in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_API_KEY APPLE_API_ISSUER; do
+            [ -z "${!v}" ] && unset "$v"
+          done
+          scripts/build.sh
+
+      - name: Package
+        run: |
+          BUNDLE=src-tauri/target/universal-apple-darwin/release/bundle
+          VERSION=${TAG#v}
+          mkdir -p out
+          cp "$BUNDLE"/dmg/*.dmg "out/Deskveet-$VERSION-universal.dmg"
+          ditto -c -k --keepParent "$BUNDLE/macos/Deskveet.app" "out/Deskveet-$VERSION-universal.app.zip"
+          (cd out && shasum -a 256 * > SHA256SUMS.txt)
+          ls -l out
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            gh release upload "$TAG" out/* --clobber
+          else
+            gh release create "$TAG" out/* --title "Deskveet ${TAG#v}" --generate-notes --verify-tag
+          fi

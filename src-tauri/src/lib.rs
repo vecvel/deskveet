@@ -101,6 +101,12 @@ pub fn run() {
         ])
         // A destroyed window means the WebKit helper processes are gone; drop our caches too.
         .on_window_event(|w, e| {
+            match e {
+                WindowEvent::Focused(f) => tray::window_changed(w.app_handle(), Some(*f)),
+                WindowEvent::Resized(_) => tray::window_changed(w.app_handle(), None), // minimise and restore
+                WindowEvent::Destroyed => tray::window_changed(w.app_handle(), Some(false)),
+                _ => {}
+            }
             if matches!(e, WindowEvent::Destroyed) {
                 let app = w.app_handle();
                 let st = app.state::<commands::AppState>();

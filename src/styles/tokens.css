@@ -17,12 +17,18 @@
   --bad-tint: rgba(238, 129, 116, .10);
   /* accent and status */
   --accent: #d97757; --accent-ink: #1f1e1d;
+  /* filled controls (primary and danger buttons, the pressed segment, switches): a shade darker than the
+     accent, with light text at 4.8:1 or better */
+  --accent-fill: #ad5536; --danger-fill: #b8473b; --on-accent: #faf9f5;
   --ok: #9bc27f; --warn: #e6b455; --bad: #ee8174; --slate: #8fa8cf; --sand: #d1b07a;
   /* sidebar tiles: one warm hue per tab; ink is the glyph colour on the tinted (idle) tile */
   --tab-overview: #d97757; --tab-storage: #c9a86a; --tab-cleanup: #8fb27a; --tab-processes: #7f9cc9; --tab-settings: #8b877d; --tab-apps: #c48a8a;
   --tab-overview-ink: var(--tab-overview); --tab-storage-ink: var(--tab-storage); --tab-cleanup-ink: var(--tab-cleanup);
   --tab-processes-ink: var(--tab-processes); --tab-settings-ink: var(--tab-settings); --tab-apps-ink: var(--tab-apps);
   --tile-tint: .22; --on-tile: #ffffff;
+  /* the active sidebar tile: each hue a shade darker, under the white glyph */
+  --tab-overview-solid: #b45f43; --tab-storage-solid: #9c8250; --tab-cleanup-solid: #6b8b59; --tab-processes-solid: #5d7aa8;
+  --tab-settings-solid: #6c685f; --tab-apps-solid: #a06a6a;
   /* scrollbars: thin thumb in the text colour, transparent track, shown only while scrolling */
   --scrollbar-size: 6px;
   --scrollbar-thumb: rgba(250, 249, 245, .26);
@@ -55,7 +61,7 @@
     --ok-tint: rgba(63, 122, 55, .12);
     --bad-tint: rgba(179, 55, 43, .09);
     --scrollbar-thumb: rgba(31, 30, 29, .26); --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M3 4.5 6 7.5 9 4.5' fill='none' stroke='rgba(31,30,29,.6)' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
-    --accent: #b4532f; --accent-ink: #ffffff;
+    --accent: #b4532f; --accent-ink: #ffffff; --accent-fill: #a34a29; --danger-fill: #a3322a; --on-accent: #ffffff;
     --ok: #3f7a37; --warn: #8f5d00; --bad: #b3372b; --slate: #476aa3; --sand: #96723a;
     --tab-overview-ink: #874a36; --tab-storage-ink: #7c6842; --tab-cleanup-ink: #596e4c; --tab-processes-ink: #4f617c; --tab-settings-ink: #56544d; --tab-apps-ink: #7a5656;
     --tile-tint: .2;
@@ -72,7 +78,7 @@
   --ok-tint: rgba(63, 122, 55, .12);
   --bad-tint: rgba(179, 55, 43, .09);
   --scrollbar-thumb: rgba(31, 30, 29, .26); --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M3 4.5 6 7.5 9 4.5' fill='none' stroke='rgba(31,30,29,.6)' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
-  --accent: #b4532f; --accent-ink: #ffffff;
+  --accent: #b4532f; --accent-ink: #ffffff; --accent-fill: #a34a29; --danger-fill: #a3322a; --on-accent: #ffffff;
   --ok: #3f7a37; --warn: #8f5d00; --bad: #b3372b; --slate: #476aa3; --sand: #96723a;
   --tab-overview-ink: #874a36; --tab-storage-ink: #7c6842; --tab-cleanup-ink: #596e4c; --tab-processes-ink: #4f617c; --tab-settings-ink: #56544d; --tab-apps-ink: #7a5656;
   --tile-tint: .2;

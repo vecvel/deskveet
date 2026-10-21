@@ -13,10 +13,19 @@ if [ -n "$TARGET" ]; then
   done
 fi
 
-IDENTITY="Deskveet Development"
-if security find-identity -p codesigning 2>/dev/null | grep -q "\"$IDENTITY\""; then
-  echo "Signing with \"$IDENTITY\""; export APPLE_SIGNING_IDENTITY="$IDENTITY"
-else echo "No \"$IDENTITY\" certificate found: building ad-hoc signed (permissions reset on every build)."; fi
+# Signing, best first: APPLE_SIGNING_IDENTITY if set (CI), a Developer ID Application certificate (can be
+# notarised and shared), the free self-signed "Deskveet Development" one, or ad-hoc. A stable signature keeps
+# Full Disk Access granted across rebuilds. Notarisation runs too when APPLE_API_ISSUER, APPLE_API_KEY and
+# APPLE_API_KEY_PATH are set (an App Store Connect API key).
+if [ -z "$APPLE_SIGNING_IDENTITY" ]; then
+  IDS=$(security find-identity -v -p codesigning 2>/dev/null)
+  DEVID=$(echo "$IDS" | grep -o '"Developer ID Application: [^"]*"' | head -1 | tr -d '"')
+  if [ -n "$DEVID" ]; then export APPLE_SIGNING_IDENTITY="$DEVID"
+  elif echo "$IDS" | grep -q '"Deskveet Development"'; then export APPLE_SIGNING_IDENTITY="Deskveet Development"
+  fi
+fi
+if [ -n "$APPLE_SIGNING_IDENTITY" ]; then echo "Signing with \"$APPLE_SIGNING_IDENTITY\""
+else echo "No signing certificate found: building ad-hoc signed (permissions reset on every build)."; fi
 
 if [ -n "$TARGET" ]; then
   pnpm tauri build --target "$TARGET" "$@"
@@ -27,7 +36,7 @@ else
 fi
 
 APP="$OUT/macos/Deskveet.app"
-codesign -dv "$APP" 2>&1 | grep -E "^(Identifier|Authority|Signature)=" || true
+codesign -dv "$APP" 2>&1 | grep -E "^(Identifier|Authority|Signature|TeamIdentifier)=" | head -4 || true
 echo "Architectures: $(lipo -archs "$APP/Contents/MacOS/deskveet")"
 echo "Minimum macOS: $(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "$APP/Contents/Info.plist")"
 du -sh "$APP" "$OUT"/dmg/*.dmg 2>/dev/null || true

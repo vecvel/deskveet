@@ -14,15 +14,15 @@
 .tile rect { fill: var(--tile); fill-opacity: var(--tile-tint); }
 .tile g { fill: none; stroke: var(--tile-ink); stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
 .tile .dot { fill: var(--tile-ink); stroke: none; }
-[aria-current="page"] .tile rect { fill-opacity: 1; }
+[aria-current="page"] .tile rect { fill: var(--tile-solid); fill-opacity: 1; }
 [aria-current="page"] .tile g { stroke: var(--on-tile); }
 [aria-current="page"] .tile .dot { fill: var(--on-tile); }
-.t-overview { --tile: var(--tab-overview); --tile-ink: var(--tab-overview-ink); }
-.t-storage { --tile: var(--tab-storage); --tile-ink: var(--tab-storage-ink); }
-.t-cleanup { --tile: var(--tab-cleanup); --tile-ink: var(--tab-cleanup-ink); }
-.t-processes { --tile: var(--tab-processes); --tile-ink: var(--tab-processes-ink); }
-.t-settings { --tile: var(--tab-settings); --tile-ink: var(--tab-settings-ink); }
-.t-apps { --tile: var(--tab-apps); --tile-ink: var(--tab-apps-ink); }
+.t-overview { --tile: var(--tab-overview); --tile-ink: var(--tab-overview-ink); --tile-solid: var(--tab-overview-solid); }
+.t-storage { --tile: var(--tab-storage); --tile-ink: var(--tab-storage-ink); --tile-solid: var(--tab-storage-solid); }
+.t-cleanup { --tile: var(--tab-cleanup); --tile-ink: var(--tab-cleanup-ink); --tile-solid: var(--tab-cleanup-solid); }
+.t-processes { --tile: var(--tab-processes); --tile-ink: var(--tab-processes-ink); --tile-solid: var(--tab-processes-solid); }
+.t-settings { --tile: var(--tab-settings); --tile-ink: var(--tab-settings-ink); --tile-solid: var(--tab-settings-solid); }
+.t-apps { --tile: var(--tab-apps); --tile-ink: var(--tab-apps-ink); --tile-solid: var(--tab-apps-solid); }
 #nav kbd { margin-left: auto; font: var(--fs-xs) var(--mono); color: var(--text-3); }
 
 #main { overflow: auto; padding: 0 22px 24px; outline: 0; }
@@ -81,10 +81,10 @@ canvas.spark { width: 100%; height: 44px; display: block; margin-top: 8px; }
 .search::placeholder { color: var(--text-2); }
 .seg { display: inline-flex; align-items: stretch; height: var(--h-control); background: var(--panel); border: 1px solid var(--border); border-radius: var(--r-control); padding: 3px; }
 .seg button { border: 0; background: none; padding: 0 14px; border-radius: var(--r-control); cursor: pointer; color: var(--text-2); font-weight: 560; }
-.seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
+.seg button[aria-pressed="true"] { background: var(--accent-fill); color: var(--on-accent); }
 .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: var(--h-control); border: 1px solid var(--border); background: transparent; color: var(--text); padding: 0 14px; border-radius: var(--r-control); cursor: pointer; font-weight: 560; }
-.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
-.btn.danger { background: var(--bad); color: var(--accent-ink); border-color: transparent; }
+.btn.primary { background: var(--accent-fill); color: var(--on-accent); border-color: transparent; }
+.btn.danger { background: var(--danger-fill); color: var(--on-accent); border-color: transparent; }
 .btn.sm { height: var(--h-control-sm); padding: 0 11px; font-size: var(--fs-sm); }
 .btn:disabled { opacity: .4; cursor: not-allowed; }
 
@@ -275,8 +275,8 @@ input.num::-webkit-inner-spin-button, input.num::-webkit-outer-spin-button { -we
 .rule-row.off .pv-main { opacity: .55; }
 input.switch { appearance: none; -webkit-appearance: none; width: 32px; height: 18px; border-radius: 999px; background: var(--panel2); border: 1px solid var(--border); position: relative; flex: none; cursor: pointer; margin-top: 2px; }
 input.switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 12px; height: 12px; border-radius: 50%; background: var(--text-2); transition: transform .15s ease; }
-input.switch:checked { background: var(--accent); border-color: transparent; }
-input.switch:checked::after { transform: translateX(14px); background: var(--accent-ink); }
+input.switch:checked { background: var(--accent-fill); border-color: transparent; }
+input.switch:checked::after { transform: translateX(14px); background: var(--on-accent); }
 
 /* plain status text: dim label, value in the status colour (no badge, no dot) */
 .status { font-size: var(--fs-sm); color: var(--text-3); font-weight: 500; }

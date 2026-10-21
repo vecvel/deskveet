@@ -1,0 +1,39 @@
+Deskveet Proprietary License
+
+Copyright (c) 2026 Vecvel. All rights reserved.
+
+This repository, including its source code, rules, icons, documentation and any builds made from it (together,
+"the Software"), is the property of Vecvel and is licensed, not sold.
+
+1. Viewing. You may view and read the source code in this repository for the purpose of evaluating the
+   Software, reviewing how it works, and reporting issues or security problems.
+
+2. Using releases. You may download the official releases published by Vecvel and install and use them on
+   computers you own or control, for personal or internal business use.
+
+3. Restrictions. Unless Vecvel has given you written permission, you may not:
+   a. copy, modify, translate or create derivative works of the Software or any part of it;
+   b. distribute, sublicense, sell, rent, lease, publish or otherwise make the Software or any part of it
+      available to others, whether as source code or in compiled form;
+   c. remove or change any copyright, trademark or license notice in the Software;
+   d. use the name "Deskveet", its icon or its logo for any other product or service.
+
+4. Contributions. If you send a contribution (for example a pull request, patch, rule or suggestion), you grant
+   Vecvel a perpetual, worldwide, royalty-free and irrevocable right to use, modify and distribute it as part
+   of the Software under any license, and you confirm that you have the right to grant this.
+
+5. Third-party components. The Software uses open source components that remain under their own licenses.
+   Nothing in this license restricts your rights under those licenses for those components.
+
+6. No warranty. The Software is provided "as is", without warranty of any kind, express or implied, including
+   but not limited to the warranties of merchantability, fitness for a particular purpose and
+   non-infringement. You are responsible for reviewing what the Software will clean before you confirm it.
+
+7. Limitation of liability. To the maximum extent permitted by law, Vecvel and its contributors are not liable
+   for any claim, damages, data loss or other liability arising from the use of, or inability to use, the
+   Software.
+
+8. Termination. This license ends automatically if you break any of its terms. When it ends you must stop
+   using the Software and delete any copies you have.
+
+For permission to do anything not allowed above, contact Vecvel through https://github.com/vecvel.
