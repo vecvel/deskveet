@@ -245,3 +245,8 @@ input.num { width: 64px; background: var(--panel); border: 1px solid var(--line)
 .row .sp { flex: 1; }
 
 [hidden] { display: none !important; }
+
+/* settings */
+.set-row { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 10px 0; border-top: 1px solid var(--line); }
+.set-row:first-of-type { border-top: 0; }
+.card .facts { margin: 0; }

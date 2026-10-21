@@ -550,3 +550,34 @@ pub fn ui_set(state: State<'_, AppState>, key: String, value: serde_json::Value)
         let _ = std::fs::rename(tmp, path);
     }
 }
+
+// ───────────────────────────── about / settings ─────────────────────────────
+
+#[derive(Serialize)]
+pub struct About {
+    pub version: String,
+    pub rules_version: String,
+    pub rules_count: usize,
+    pub cache_dir: String,
+    pub cache_bytes: u64,
+    pub data_dir: String,
+    pub undo_log: String,
+}
+
+#[tauri::command(async)]
+pub fn about(state: State<'_, AppState>) -> About {
+    let cache = platform::cache_dir();
+    // WebKit's own cache lives in the same folder; only our scan files are ours to size and clear.
+    let cache_bytes = std::fs::read_dir(&cache)
+        .map(|rd| rd.flatten().filter(|e| e.file_name().to_string_lossy().starts_with("scan-")).filter_map(|e| e.metadata().ok()).map(|m| m.len()).sum())
+        .unwrap_or(0);
+    About {
+        version: env!("CARGO_PKG_VERSION").into(),
+        rules_version: state.engine.reg.rules_version.clone(),
+        rules_count: state.engine.reg.rules.len(),
+        cache_dir: cache.to_string_lossy().into_owned(),
+        cache_bytes,
+        data_dir: platform::data_dir().to_string_lossy().into_owned(),
+        undo_log: state.engine.undo.path().to_string_lossy().into_owned(),
+    }
+}

@@ -5,7 +5,7 @@ import { store } from "./store";
 import { cleanupView } from "./views/cleanup";
 import { overviewView } from "./views/overview";
 import { processesView } from "./views/processes";
-import { soonView } from "./views/soon";
+import { applyTheme, releaseSeconds, settingsView, Theme } from "./views/settings";
 import { storageView } from "./views/storage";
 import { View } from "./views/types";
 
@@ -39,7 +39,7 @@ function make(id: string): View {
     case "processes": return processesView();
     case "storage": return storageView();
     case "cleanup": return cleanupView();
-    default: return soonView("Settings", "Theme, scan roots and the undo log.", "step 5");
+    default: return settingsView();
   }
 }
 
@@ -71,13 +71,13 @@ async function loop(now = false) {
 
 // After a minute in the background the window is released: the webview and its three WebKit helper
 // processes (~70 MB) go away, the Rust side keeps running. Dock click / Cmd+Tab brings the window back.
-const RELEASE_AFTER_MS = 60_000;
 let releaseTimer = 0;
 document.addEventListener("visibilitychange", () => {
   clearTimeout(releaseTimer);
   if (document.hidden) {
     clearTimeout(timer);
-    releaseTimer = window.setTimeout(() => void window.__TAURI__.core.invoke("release_window"), RELEASE_AFTER_MS);
+    const secs = releaseSeconds();
+    if (secs > 0) releaseTimer = window.setTimeout(() => void window.__TAURI__.core.invoke("release_window"), secs * 1000);
   } else void loop(true);
 });
 
@@ -99,6 +99,7 @@ addEventListener("keydown", (e) => {
 addEventListener("contextmenu", (e) => e.preventDefault());
 
 void store.load().then(() => {
+  applyTheme(store.get<Theme>("theme", "system"));
   const last = store.get("tab", "overview");
   show(TABS.some((t) => t.id === last) ? last : "overview");
 });

@@ -75,6 +75,8 @@ export interface Project { path: string; name: string; last_active: number; item
 export interface ArtifactScan { roots: string[]; projects: Project[]; total: number; dirs: number }
 export interface ArtifactState { busy: boolean; default_roots: string[]; scan: ArtifactScan | null }
 
+export interface About { version: string; rules_version: string; rules_count: number; cache_dir: string; cache_bytes: number; data_dir: string; undo_log: string }
+
 const call = <T>(cmd: string, args?: Record<string, unknown>) => window.__TAURI__.core.invoke<T>(cmd, args);
 
 export const api = {
@@ -102,5 +104,7 @@ export const api = {
   openTrash: () => call<void>("open_trash"),
   artifactState: () => call<ArtifactState>("artifact_state"),
   artifactScan: (roots: string[]) => call<void>("artifact_scan", { roots }),
+  about: () => call<About>("about"),
+  clearScanCache: () => call<number>("scan_clear_cache"),
   listen: <T>(name: string, cb: (payload: T) => void) => window.__TAURI__.event.listen<T>(name, (e) => cb(e.payload)),
 };

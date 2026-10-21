@@ -54,6 +54,7 @@ pub fn run() {
             commands::undo_restore,
             commands::undo_clear,
             commands::open_trash,
+            commands::about,
             commands::ui_get_all,
             commands::ui_set,
             commands::artifact_state,
