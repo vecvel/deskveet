@@ -12,18 +12,13 @@ import { applyTheme, releaseSeconds, settingsView, Theme } from "./views/setting
 import { storageView } from "./views/storage";
 import { View } from "./views/types";
 
-// Outline icons in the style of SF Symbols: 24px grid, 1.6px rounded strokes, one per destination.
+// Sidebar glyphs (24px grid). Drawn on a warm tile: tinted when idle, solid when the tab is active.
 const ICONS: Record<string, string> = {
-  // square.grid.2x2
-  overview: '<rect x="3.5" y="3.5" width="7" height="7" rx="2"/><rect x="13.5" y="3.5" width="7" height="7" rx="2"/><rect x="3.5" y="13.5" width="7" height="7" rx="2"/><rect x="13.5" y="13.5" width="7" height="7" rx="2"/>',
-  // internaldrive
-  storage: '<rect x="2.5" y="7" width="19" height="10" rx="3"/><path d="M2.8 12.2h18.4"/><circle cx="17.4" cy="14.6" r=".9" fill="currentColor" stroke="none"/><path d="M5.5 14.6h4"/>',
-  // sparkles
-  cleanup: '<path d="M10 3.5c.6 4.2 2.3 5.9 6.5 6.5-4.2.6-5.9 2.3-6.5 6.5-.6-4.2-2.3-5.9-6.5-6.5 4.2-.6 5.9-2.3 6.5-6.5z"/><path d="M17.5 14c.3 2.1 1.1 2.9 3.2 3.2-2.1.3-2.9 1.1-3.2 3.2-.3-2.1-1.1-2.9-3.2-3.2 2.1-.3 2.9-1.1 3.2-3.2z"/>',
-  // cpu
-  processes: '<rect x="6" y="6" width="12" height="12" rx="2.5"/><rect x="9.5" y="9.5" width="5" height="5" rx="1"/><path d="M9.5 3v3M14.5 3v3M9.5 18v3M14.5 18v3M3 9.5h3M3 14.5h3M18 9.5h3M18 14.5h3"/>',
-  // gearshape
-  settings: '<path d="M18.62 9.43 L21.00 10.08 L21.00 13.92 L18.62 14.57 L18.50 14.87 L19.72 17.01 L17.01 19.72 L14.87 18.50 L14.57 18.62 L13.92 21.00 L10.08 21.00 L9.43 18.62 L9.13 18.50 L6.99 19.72 L4.28 17.01 L5.50 14.87 L5.38 14.57 L3.00 13.92 L3.00 10.08 L5.38 9.43 L5.50 9.13 L4.28 6.99 L6.99 4.28 L9.13 5.50 L9.43 5.38 L10.08 3.00 L13.92 3.00 L14.57 5.38 L14.87 5.50 L17.01 4.28 L19.72 6.99 L18.50 9.13 Z"/><circle cx="12" cy="12" r="3"/>',
+  overview: '<path d="M4.5 16.5a8 8 0 1 1 15 0"/><path d="M12 13.5l3.6-4.2"/><circle cx="12" cy="13.5" r="1.3" class="dot"/><path d="M6.5 19.5h11"/>', // gauge
+  storage: '<circle cx="12" cy="12" r="8.5"/><path d="M12 3.5V12h8.5"/>', // pie chart
+  cleanup: '<path d="M16.5 3l-4.2 7.5"/><path d="M9.3 10.5h6l2.5 9.5H6.5z"/><path d="M9.6 20l1.2-5M12.6 20l.3-5M15.6 20l-.6-5"/>', // broom
+  processes: '<path d="M3 12h3.5l2.5-6 4 12 2.5-6H21"/>', // activity
+  settings: '<path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/>', // sliders
 };
 
 const TABS = [
@@ -96,7 +91,7 @@ for (const [label, ids] of GROUPS) {
   for (const id of ids) {
     const i = TABS.findIndex((t) => t.id === id);
     const b = h("button", { "data-id": id, title: TABS[i].label, "aria-label": TABS[i].label, onclick: () => show(id) });
-    b.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[id]}</svg><span class="lbl">${TABS[i].label}</span><kbd>⌘${i + 1}</kbd>`;
+    b.innerHTML = `<svg class="tile t-${id}" viewBox="0 0 24 24" aria-hidden="true"><rect x="1" y="1" width="22" height="22" rx="6"/><g transform="translate(4.6 4.6) scale(.617)">${ICONS[id]}</g></svg><span class="lbl">${TABS[i].label}</span><kbd>⌘${i + 1}</kbd>`;
     nav.append(b);
   }
 }
