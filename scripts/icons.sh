@@ -9,20 +9,20 @@ trap 'rm -rf "$TMP"' EXIT
 
 png() { rsvg-convert -w "$2" -h "$2" "$1" -o "$3"; }
 
-png scripts/icon.svg 1024 scripts/icon.png
-png scripts/icon.svg 32  "$OUT/32x32.png"
-png scripts/icon.svg 128 "$OUT/128x128.png"
-png scripts/icon.svg 256 "$OUT/128x128@2x.png"
-png scripts/icon.svg 512 "$OUT/icon.png"
-png scripts/tray.svg 36  "$OUT/tray.png"           # 18 pt menu bar icon at 2x
+png assets/icon.svg 1024 assets/icon.png
+png assets/icon.svg 32  "$OUT/32x32.png"
+png assets/icon.svg 128 "$OUT/128x128.png"
+png assets/icon.svg 256 "$OUT/128x128@2x.png"
+png assets/icon.svg 512 "$OUT/icon.png"
+png assets/tray.svg 36  "$OUT/tray.png"           # 18 pt menu bar icon at 2x
 
 SET="$TMP/icon.iconset"; mkdir "$SET"
 for s in 16 32 128 256 512; do
-  png scripts/icon.svg "$s" "$SET/icon_${s}x${s}.png"
-  png scripts/icon.svg "$((s * 2))" "$SET/icon_${s}x${s}@2x.png"
+  png assets/icon.svg "$s" "$SET/icon_${s}x${s}.png"
+  png assets/icon.svg "$((s * 2))" "$SET/icon_${s}x${s}@2x.png"
 done
 iconutil -c icns "$SET" -o "$OUT/icon.icns"
-for s in 24 48 64; do png scripts/icon.svg "$s" "$TMP/ico_$s.png"; done
+for s in 24 48 64; do png assets/icon.svg "$s" "$TMP/ico_$s.png"; done
 # .ico with PNG entries (what Windows expects from Vista on; much smaller than bitmaps)
 python3 - "$OUT/icon.ico" "$SET/icon_16x16.png" "$TMP/ico_24.png" "$SET/icon_32x32.png" "$TMP/ico_48.png" "$TMP/ico_64.png" "$SET/icon_256x256.png" <<'PY'
 import struct, sys

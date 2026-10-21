@@ -10,8 +10,8 @@
   dust     three grains leaving through the opening from the orbit's end at -90 degrees:
            radius m * phi^-k and opacity phi^-k (k = 0, 1, 2), each gap 1/2 m measured along the orbit
 
-Writes scripts/icon.svg (app icon), scripts/tray.svg (menu bar template) and prints the sidebar <svg>
-for index.html. Render with scripts/icons.sh.
+Writes assets/icon.svg (app icon), assets/tray.svg (menu bar template) and assets/mark.svg (the mark on a
+transparent background, for docs and promo material), and prints the sidebar <svg> for index.html. Render with scripts/icons.sh.
 """
 from math import cos, sin, radians, degrees, sqrt
 from pathlib import Path
@@ -87,13 +87,21 @@ def tray_icon() -> str:
 '''
 
 
+def mark_svg() -> str:
+    # standalone mark in the dark theme colours, trimmed like the tray icon
+    return f'''<svg xmlns="http://www.w3.org/2000/svg" viewBox="3 3 26 26">{mark("#d97757", "#faf9f5", "wipe")}</svg>
+'''
+
+
 def sidebar() -> str:
     return (f'<svg viewBox="0 0 32 32" width="26" height="26" aria-hidden="true">'
             f'{mark("currentColor", "var(--text)", "brand-wipe")}</svg>')
 
 
 if __name__ == "__main__":
-    here = Path(__file__).parent
-    (here / "icon.svg").write_text(app_icon())
-    (here / "tray.svg").write_text(tray_icon())
+    assets = Path(__file__).parent.parent / "assets"
+    assets.mkdir(exist_ok=True)
+    (assets / "icon.svg").write_text(app_icon())
+    (assets / "tray.svg").write_text(tray_icon())
+    (assets / "mark.svg").write_text(mark_svg())
     print(sidebar())

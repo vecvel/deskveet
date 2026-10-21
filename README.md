@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="scripts/icon.png" width="128" height="128" alt="Deskveet icon">
+  <img src="assets/icon.png" width="128" height="128" alt="Deskveet icon">
 </p>
 
 <h1 align="center">Deskveet</h1>
@@ -18,6 +18,14 @@
   <img src="https://img.shields.io/badge/network-none-9bc27f" alt="No network access">
   <img src="https://img.shields.io/badge/built%20with-Rust%20%2B%20Tauri%202-b45f43?logo=rust&logoColor=white" alt="Built with Rust and Tauri 2">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-proprietary-6c685f" alt="Proprietary license"></a>
+</p>
+
+<p align="center">
+  <video src="https://github.com/vecvel/deskveet/raw/main/assets/deskveet-promo.mp4" poster="assets/deskveet-promo.jpg" width="720" controls muted playsinline></video>
+</p>
+<p align="center">
+  <a href="assets/deskveet-promo.mp4"><img src="assets/deskveet-promo.jpg" width="720" alt="Deskveet in 20 seconds: watch the video"></a><br>
+  <sub>Deskveet in 20 seconds. Click to play if the video doesn't show above.</sub>
 </p>
 
 ---
