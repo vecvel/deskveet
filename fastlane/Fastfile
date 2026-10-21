@@ -41,7 +41,9 @@ platform :mac do
   lane :notarize_dmg do
     dmg = Dir[File.join(BUNDLE, "dmg/*.dmg")].max_by { |f| File.mtime(f) }
     UI.user_error!("No .dmg found. Run `fastlane mac build` first.") unless dmg
-    notarize(package: dmg, api_key: api_key, print_log: true)
+    # a .dmg has no Info.plist, so the bundle id comes from the Appfile
+    bundle_id = CredentialsManager::AppfileConfig.try_fetch_value(:app_identifier)
+    notarize(package: dmg, bundle_id: bundle_id, api_key: api_key, print_log: true)
   end
 
   desc "Tag the current version and push the tag (GitHub Actions publishes the release)"
