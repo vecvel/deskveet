@@ -16,8 +16,8 @@
       {
         "label": "main",
         "title": "Deskveet",
-        "width": 1040,
-        "height": 700,
+        "width": 960,
+        "height": 640,
         "minWidth": 900,
         "minHeight": 600,
         "titleBarStyle": "Overlay",

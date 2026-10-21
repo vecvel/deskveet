@@ -14,6 +14,13 @@ impl AppState {
     pub fn new() -> Self {
         Self { mon: Mutex::new(Monitor::new()) }
     }
+
+    /// Drop everything that can be rebuilt; called when the window (and its webview) goes away.
+    pub fn release_memory(&self) {
+        if let Ok(mut m) = self.mon.lock() {
+            m.release();
+        }
+    }
 }
 
 // `async` makes Tauri run these on its thread pool instead of the main (UI) thread.
@@ -61,4 +68,11 @@ pub fn quick_look(state: State<'_, AppState>, path: String) -> Result<(), String
 #[tauri::command(async)]
 pub fn open_fda_settings(state: State<'_, AppState>) -> Result<(), String> {
     state.mon.lock().unwrap().plat().open_full_disk_access_settings().map_err(|e| e.to_string())
+}
+
+/// The UI asks for this after it has been hidden for a while: closing the window frees the
+/// webview and its helper processes (~70 MB). Dock click or Cmd+Tab brings it back.
+#[tauri::command(async)]
+pub fn release_window(window: tauri::WebviewWindow) {
+    let _ = window.destroy();
 }

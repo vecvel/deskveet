@@ -15,6 +15,12 @@ pub type Current = macos::Mac;
 #[cfg(not(target_os = "macos"))]
 pub type Current = other::Generic;
 
+/// Hand freed heap pages back to the OS. Cheap; called after refresh bursts to keep the footprint flat.
+pub fn trim_memory() {
+    #[cfg(target_os = "macos")]
+    macos::trim_memory();
+}
+
 pub fn current() -> Current {
     Current::default()
 }

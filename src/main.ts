@@ -62,7 +62,17 @@ async function loop(now = false) {
   timer = window.setTimeout(() => void loop(true), v.interval ?? 2000);
 }
 
-document.addEventListener("visibilitychange", () => (document.hidden ? clearTimeout(timer) : void loop(true)));
+// After a minute in the background the window is released: the webview and its three WebKit helper
+// processes (~70 MB) go away, the Rust side keeps running. Dock click / Cmd+Tab brings the window back.
+const RELEASE_AFTER_MS = 60_000;
+let releaseTimer = 0;
+document.addEventListener("visibilitychange", () => {
+  clearTimeout(releaseTimer);
+  if (document.hidden) {
+    clearTimeout(timer);
+    releaseTimer = window.setTimeout(() => void window.__TAURI__.core.invoke("release_window"), RELEASE_AFTER_MS);
+  } else void loop(true);
+});
 
 nav.append(
   ...TABS.map((t, i) => {

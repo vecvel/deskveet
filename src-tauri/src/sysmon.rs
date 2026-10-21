@@ -145,6 +145,16 @@ impl Monitor {
         }
     }
 
+    /// Forget all cached state (process table, disks, user names) and return heap pages to the OS.
+    pub fn release(&mut self) {
+        self.sys = System::new();
+        self.disks = Disks::new();
+        self.disk_cache = None;
+        self.proc_at = None;
+        self.users = HashMap::new();
+        platform::trim_memory();
+    }
+
     pub fn plat(&self) -> &Current {
         &self.plat
     }
@@ -155,6 +165,7 @@ impl Monitor {
         }
         self.sys.refresh_processes_specifics(ProcessesToUpdate::All, true, proc_kind());
         self.proc_at = Some(Instant::now());
+        platform::trim_memory();
     }
 
     fn disk_rows(&mut self) -> Vec<DiskRow> {

@@ -8,6 +8,17 @@ use std::process::{Command, Stdio};
 #[derive(Default)]
 pub struct Mac;
 
+extern "C" {
+    fn malloc_zone_pressure_relief(zone: *mut c_void, goal: usize) -> usize;
+}
+
+pub fn trim_memory() {
+    // SAFETY: a null zone means "all zones"; goal 0 means "as much as possible".
+    unsafe {
+        malloc_zone_pressure_relief(std::ptr::null_mut(), 0);
+    }
+}
+
 // ───────────────────────────── sysctl / mach ─────────────────────────────
 
 fn sysctl_raw<T: Copy + Default>(name: &str) -> Option<T> {
@@ -137,6 +148,15 @@ fn cf_available_important(mount: &Path) -> Option<u64> {
     }
 }
 
+/// Spawn and reap in the background so finished helpers (qlmanage, open) never linger as zombies.
+fn spawn_reaped(cmd: &mut Command) -> io::Result<()> {
+    let mut child = cmd.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn()?;
+    std::thread::spawn(move || {
+        let _ = child.wait();
+    });
+    Ok(())
+}
+
 // ───────────────────────────── Platform ─────────────────────────────
 
 impl Platform for Mac {
@@ -193,22 +213,19 @@ impl Platform for Mac {
     }
 
     fn reveal(&self, path: &Path) -> io::Result<()> {
-        Command::new("/usr/bin/open").arg("-R").arg(path).stdout(Stdio::null()).stderr(Stdio::null()).spawn().map(|_| ())
+        spawn_reaped(Command::new("/usr/bin/open").arg("-R").arg(path))
     }
 
     fn open(&self, path: &Path) -> io::Result<()> {
-        Command::new("/usr/bin/open").arg(path).stdout(Stdio::null()).stderr(Stdio::null()).spawn().map(|_| ())
+        spawn_reaped(Command::new("/usr/bin/open").arg(path))
     }
 
     fn quick_look(&self, path: &Path) -> io::Result<()> {
-        Command::new("/usr/bin/qlmanage").arg("-p").arg(path).stdout(Stdio::null()).stderr(Stdio::null()).spawn().map(|_| ())
+        spawn_reaped(Command::new("/usr/bin/qlmanage").arg("-p").arg(path))
     }
 
     fn open_full_disk_access_settings(&self) -> io::Result<()> {
-        Command::new("/usr/bin/open")
-            .arg("x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles")
-            .spawn()
-            .map(|_| ())
+        spawn_reaped(Command::new("/usr/bin/open").arg("x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles"))
     }
 }
 
