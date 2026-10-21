@@ -116,8 +116,8 @@ The same steps are available as [fastlane](https://fastlane.tools) lanes (`brew 
 `fastlane/.env.example` to `fastlane/.env` and fill in your App Store Connect API key first.
 
 ```bash
-fastlane mac build            # universal app and disk image, signed and notarised when the key is set
-fastlane mac notarize_dmg     # notarise and staple the disk image too
+fastlane mac build            # universal app and disk image, both signed and notarised when the key is set
+fastlane mac notarize_dmg     # notarise the newest disk image on its own
 fastlane mac release          # tag the version and push it, GitHub Actions publishes the release
 fastlane mac store_metadata   # upload the App Store text and the screenshots in assets/store-listing
 ```

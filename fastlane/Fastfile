@@ -1,8 +1,8 @@
 # Deskveet lanes. Run from the project root, for example: fastlane mac build
 #
 # build           universal .app and .dmg via scripts/build.sh (signed with your Developer ID when it is in the keychain;
-#                 also notarised when the APPLE_API_* variables are set)
-# notarize_dmg    notarise and staple the .dmg as well, so the disk image opens without a warning offline
+#                 when the APPLE_API_* variables are set, the app and the .dmg are both notarised and stapled)
+# notarize_dmg    notarise and staple the newest .dmg on its own (build already does this when the key is set)
 # release         tag the version in tauri.conf.json and push the tag; GitHub Actions builds and publishes it
 # store_metadata  upload the App Store text (fastlane/metadata) and screenshots (assets/store-listing) to App Store
 #                 Connect, without a binary and without submitting for review
@@ -35,6 +35,8 @@ platform :mac do
     # Tauri reads APPLE_API_KEY (the key id), APPLE_API_ISSUER and APPLE_API_KEY_PATH to notarise the app.
     ENV["APPLE_API_KEY"] ||= ENV["APPLE_API_KEY_ID"]
     sh("cd #{ROOT.shellescape} && scripts/build.sh")
+    # every build makes a new .dmg, so notarise it right away when the key is there
+    notarize_dmg if %w[APPLE_API_KEY_ID APPLE_API_ISSUER APPLE_API_KEY_PATH].all? { |v| !ENV[v].to_s.empty? }
   end
 
   desc "Notarise and staple the disk image"
