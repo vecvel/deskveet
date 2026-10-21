@@ -62,6 +62,14 @@ Sharing a build: copies that aren't signed with a Developer ID are stopped by Ga
 one, right-click the app, choose Open, then confirm. Signing with a Developer ID and notarising (needs a paid
 Apple developer account) removes this step; the build works without it.
 
+## The mark
+
+A planet with a wipe through it, inside an orbit open for one quarter, with dust leaving through the opening.
+Every measure comes from one module (m = 2 on a 32 grid): planet 3m, orbit 5.5m with a 1m stroke, wipe 1m
+at -45° (pointing at the middle of the opening), dust radii and opacities m·φ⁻ᵏ and φ⁻ᵏ with ½m gaps along
+the orbit. `scripts/logo.py` holds the geometry and writes the app icon, the menu bar template icon and the
+sidebar mark; `scripts/icons.sh` renders every size.
+
 ## Memory and size
 
 | | |
@@ -80,6 +88,7 @@ pnpm install
 pnpm tauri dev                 # run
 cd src-tauri && cargo test     # 87 tests, all against temp-dir fixtures with a fake system layer
 scripts/build.sh               # universal release .app + .dmg (--native: this Mac only), signed with "Deskveet Development" if present
+scripts/icons.sh               # regenerate the app, menu bar and sidebar icons from scripts/logo.py
 ```
 
 Dev helpers in `src-tauri/examples/` run the real engine read-only (`cleanup_dry`, `scan_bench`,
