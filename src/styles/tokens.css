@@ -18,6 +18,9 @@
   --tab-overview-ink: var(--tab-overview); --tab-storage-ink: var(--tab-storage); --tab-cleanup-ink: var(--tab-cleanup);
   --tab-processes-ink: var(--tab-processes); --tab-settings-ink: var(--tab-settings);
   --tile-tint: .22; --on-tile: #ffffff;
+  /* scrollbars: thin thumb in the text colour, transparent track, shown only while scrolling */
+  --scrollbar-size: 10px;
+  --scrollbar-thumb: color-mix(in srgb, var(--text) 26%, transparent);
   /* type */
   --font: system-ui, -apple-system, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
   --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;

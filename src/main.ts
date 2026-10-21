@@ -4,6 +4,7 @@ import "./styles/components.css";
 import { h } from "./dom";
 import { api } from "./api";
 import { env } from "./fmt";
+import { autoHideScrollbars } from "./scrollbars";
 import { store } from "./store";
 import { cleanupView } from "./views/cleanup";
 import { overviewView } from "./views/overview";
@@ -103,6 +104,7 @@ addEventListener("keydown", (e) => {
   else if (e.key === "f") { e.preventDefault(); views.get(current)?.find?.(); }
   else if (e.key === "r") { e.preventDefault(); views.get(current)?.refresh?.(e.shiftKey); }
 });
+autoHideScrollbars();
 addEventListener("contextmenu", (e) => e.preventDefault());
 
 void store.load().then(() => {
