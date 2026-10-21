@@ -21,8 +21,7 @@
 </p>
 
 <p align="center">
-  <a href="assets/deskveet-promo.mp4"><img src="assets/deskveet-promo.jpg" width="720" alt="Deskveet in 20 seconds: watch the video"></a><br>
-  <sub>Deskveet in 20 seconds. Click the picture to play the video.</sub>
+  <img src="assets/deskveet-promo.gif" width="720" alt="Deskveet in 20 seconds: a full disk, the caches behind it, a preview, and 73 GB moved to the Trash">
 </p>
 
 ---
