@@ -10,7 +10,7 @@
 }
 #nav button[aria-current="page"] { background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--text); }
 #nav button[aria-current="page"] svg { color: var(--accent); }
-#nav svg { width: 16px; height: 16px; flex: none; }
+#nav svg { width: 18px; height: 18px; flex: none; }
 #nav kbd { margin-left: auto; font: var(--fs-xs) var(--mono); color: var(--text-3); }
 .foot { color: var(--text-3); font-size: 11px; padding: 0 8px; }
 
@@ -223,8 +223,8 @@ input.num { width: 64px; background: var(--panel); border: 1px solid var(--borde
   .brand { padding-left: 0; padding-right: 0; }
   .brand span, #nav kbd, #nav .lbl, .nav-label, .foot { display: none; }
   #nav { align-items: center; }
-  #nav button { padding: 10px; }
-  #nav svg { width: 18px; height: 18px; }
+  #nav button { padding: 10px 14px; }
+  #nav svg { width: 20px; height: 20px; }
 }
 
 /* table column widths (fixed layout constants) */

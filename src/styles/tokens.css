@@ -2,7 +2,7 @@
    Restyle the app by editing this file. Palette: warm charcoal, parchment text, terracotta accent. */
 :root {
   /* surfaces */
-  --bg: #262624; --panel: #2f2e2b; --panel2: #3a3935;
+  --bg: #1c1b19; --panel: #252422; --panel2: #302f2c;
   /* text levels: primary (titles, key values), secondary (body), tertiary (section labels, metadata) */
   --text: #faf9f5;
   --text-2: color-mix(in srgb, var(--text) 74%, transparent);
@@ -44,4 +44,4 @@
   color-scheme: light;
 }
 /* medium window: the sidebar becomes an icon rail */
-@media (max-width: 920px) { :root { --side-w: 60px; } }
+@media (max-width: 920px) { :root { --side-w: 80px; } }
