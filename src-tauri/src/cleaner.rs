@@ -338,13 +338,13 @@ impl Engine {
 
     // ── scanning ──
 
-    pub fn scan_all(&self, cancel: &AtomicBool, on_rule: &(dyn Fn(&RuleResult) + Sync)) -> Vec<RuleResult> {
+    pub fn scan_all(&self, cancel: &AtomicBool, disabled: &HashSet<String>, on_rule: &(dyn Fn(&RuleResult) + Sync)) -> Vec<RuleResult> {
         let procs = self.sys.processes();
         let out: Vec<Option<RuleResult>> = self.pool(|| {
             self.reg
                 .rules
                 .par_iter()
-                .filter(|r| r.kind != Kind::Artifact)
+                .filter(|r| r.kind != Kind::Artifact && !disabled.contains(&r.id))
                 .map(|r| {
                     if cancel.load(Relaxed) {
                         return None;
@@ -550,10 +550,10 @@ impl Engine {
     // ── project build artifacts ──
 
     /// Find artifact folders below `roots`. Results are remembered so a plan can refer to them by id.
-    pub fn find_artifacts(&self, roots: &[PathBuf], cancel: &AtomicBool, dirs_seen: &std::sync::atomic::AtomicU64) -> (ArtifactScan, Vec<RuleResult>) {
+    pub fn find_artifacts(&self, roots: &[PathBuf], disabled: &HashSet<String>, cancel: &AtomicBool, dirs_seen: &std::sync::atomic::AtomicU64) -> (ArtifactScan, Vec<RuleResult>) {
         let roots: Vec<PathBuf> = roots.iter().filter_map(|r| r.canonicalize().ok()).filter(|r| r.is_dir()).collect();
         *self.art_roots.lock().unwrap() = roots.clone();
-        let rules: Vec<&Rule> = self.reg.rules.iter().filter(|r| r.kind == Kind::Artifact).collect();
+        let rules: Vec<&Rule> = self.reg.rules.iter().filter(|r| r.kind == Kind::Artifact && !disabled.contains(&r.id)).collect();
         let procs = self.sys.processes();
         let found: Vec<(usize, PathBuf)> = self.pool(|| {
             roots.par_iter().flat_map(|r| walk_artifacts(r, 0, &rules, cancel, dirs_seen)).collect()
@@ -633,6 +633,11 @@ impl Engine {
 
     /// Build the verified preview. `ids` come from our own scan results; `picks` are paths the user chose.
     pub fn plan(&self, results: &[RuleResult], ids: &[String], picks: &[String], dry_run: bool) -> Plan {
+        self.plan_with(results, ids, picks, dry_run, &HashSet::new())
+    }
+
+    /// Like `plan`, but items of rules the user switched off are refused.
+    pub fn plan_with(&self, results: &[RuleResult], ids: &[String], picks: &[String], dry_run: bool, disabled: &HashSet<String>) -> Plan {
         let procs = self.sys.processes();
         let open = self.sys.open_files();
         let mut items: Vec<PlanItem> = Vec::new();
@@ -645,7 +650,11 @@ impl Engine {
             let found = results.iter().find_map(|rr| rr.items.iter().find(|i| &i.id == id).map(|i| (rr, i)));
             let Some((rr, item)) = found else { continue };
             let Some(rule) = self.reg.get(&rr.rule.id) else { continue };
-            items.push(self.plan_rule_item(rule, item, &procs, &open));
+            let mut pi = self.plan_rule_item(rule, item, &procs, &open);
+            if disabled.contains(&rule.id) {
+                pi.blocked = Some("This rule is switched off in Settings".into());
+            }
+            items.push(pi);
         }
         for p in picks {
             if seen.insert(format!("pick|{p}")) {
@@ -1385,7 +1394,7 @@ mod tests {
 
     fn art_scan(f: &Fx) -> (ArtifactScan, Vec<RuleResult>) {
         let seen = std::sync::atomic::AtomicU64::new(0);
-        f.eng.find_artifacts(&[f.home.join("dev")], &AtomicBool::new(false), &seen)
+        f.eng.find_artifacts(&[f.home.join("dev")], &HashSet::new(), &AtomicBool::new(false), &seen)
     }
 
     fn make_projects(f: &Fx) -> PathBuf {
@@ -1453,7 +1462,7 @@ mod tests {
         assert!(d.join("web/node_modules").exists());
         // a later scan of another folder invalidates items from the old one
         put(&d.join("web/package.json"), 10);
-        f.eng.find_artifacts(&[f.home.join("Desktop")], &AtomicBool::new(false), &std::sync::atomic::AtomicU64::new(0));
+        f.eng.find_artifacts(&[f.home.join("Desktop")], &HashSet::new(), &AtomicBool::new(false), &std::sync::atomic::AtomicU64::new(0));
         let plan = f.eng.plan(&results, &[nm], &[], false);
         assert!(plan.items[0].blocked.is_some(), "outside the scanned roots");
     }
@@ -1468,5 +1477,25 @@ mod tests {
         let nm = results.iter().flat_map(|r| &r.items).find(|i| i.label == "node_modules").unwrap().id.clone();
         let plan = f.eng.plan(&results, &[nm], &[], false);
         assert!(plan.items[0].confirm.iter().any(|c| c.contains("node is running")));
+    }
+
+    #[test]
+    fn switched_off_rules_are_not_scanned_and_their_items_are_refused() {
+        let f = fx();
+        let dd = f.home.join("Library/Developer/Xcode/DerivedData");
+        put(&dd.join("A-1/x"), 100_000);
+        put(&f.home.join("dev/web/package.json"), 10);
+        put(&f.home.join("dev/web/node_modules/x.js"), 100_000);
+        let off: HashSet<String> = ["xcode.derived_data".to_string(), "artifact.node_modules".to_string()].into();
+        let all = f.eng.scan_all(&AtomicBool::new(false), &off, &|_| {});
+        assert!(all.iter().all(|r| r.rule.id != "xcode.derived_data"));
+        let (art, _) = f.eng.find_artifacts(&[f.home.join("dev")], &off, &AtomicBool::new(false), &std::sync::atomic::AtomicU64::new(0));
+        assert!(art.projects.is_empty());
+        // an item scanned while the rule was on is refused once it is switched off
+        let rr = scan(&f, "xcode.derived_data");
+        let plan = f.eng.plan_with(&[rr.clone()], &ids(&rr), &[], false, &off);
+        assert!(plan.items[0].blocked.as_deref().unwrap().contains("switched off"));
+        assert_eq!(run(&f, &plan, &RunOpts::default()).skipped, 1);
+        assert!(dd.join("A-1/x").exists());
     }
 }

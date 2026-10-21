@@ -12,7 +12,7 @@ fn main() {
     }
     let eng = Engine::new(Registry::macos().unwrap(), home.clone(), Arc::new(RealSys::new(home.clone())), home.join(".Trash"), std::env::temp_dir().join("deskveet-art-undo.json"));
     let t = std::time::Instant::now();
-    let (scan, _) = eng.find_artifacts(&roots, &AtomicBool::new(false), &AtomicU64::new(0));
+    let (scan, _) = eng.find_artifacts(&roots, &Default::default(), &AtomicBool::new(false), &AtomicU64::new(0));
     println!("roots {:?}\n{} projects, {:.2} GB in {:.1}s ({} dirs walked)", scan.roots, scan.projects.len(), scan.total as f64 / 1e9, t.elapsed().as_secs_f64(), scan.dirs);
     let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64;
     for p in scan.projects.iter().take(15) {

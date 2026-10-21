@@ -1,5 +1,5 @@
 //! Minimal fallback so the crate still compiles on Windows/Linux. Real implementations come later.
-use super::{MemExtra, Platform, ProcFacts, ProcessInfo};
+use super::{Apps, MemExtra, Platform, ProcFacts, ProcessInfo, RunningApp};
 use std::io;
 use std::path::{Path, PathBuf};
 
@@ -49,5 +49,20 @@ impl ProcessInfo for Generic {
     }
     fn reveal_target(&self, exe: &Path) -> PathBuf {
         exe.to_path_buf()
+    }
+}
+
+impl Apps for Generic {
+    fn running_apps(&self) -> Vec<RunningApp> {
+        Vec::new()
+    }
+    fn app_icon_png(&self, _: &Path) -> Option<Vec<u8>> {
+        None
+    }
+    fn quit_app(&self, _: u32, _: bool) -> bool {
+        false
+    }
+    fn responsible_pid(&self, _: u32) -> Option<u32> {
+        None
     }
 }

@@ -6,6 +6,7 @@ import { api } from "./api";
 import { env } from "./fmt";
 import { autoHideScrollbars } from "./scrollbars";
 import { store } from "./store";
+import { appsView } from "./views/apps";
 import { cleanupView } from "./views/cleanup";
 import { overviewView } from "./views/overview";
 import { processesView } from "./views/processes";
@@ -19,6 +20,7 @@ const ICONS: Record<string, string> = {
   storage: '<circle cx="12" cy="12" r="8.5"/><path d="M12 3.5V12h8.5"/>', // pie chart
   cleanup: '<path d="M16.5 3l-4.2 7.5"/><path d="M9.3 10.5h6l2.5 9.5H6.5z"/><path d="M9.6 20l1.2-5M12.6 20l.3-5M15.6 20l-.6-5"/>', // broom
   processes: '<path d="M3 12h3.5l2.5-6 4 12 2.5-6H21"/>', // activity
+  apps: '<path d="M12 3.5v7.5"/><path d="M7.2 6.6a7.5 7.5 0 1 0 9.6 0"/>', // power: quit apps
   settings: '<path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/>', // sliders
 };
 
@@ -26,6 +28,7 @@ const TABS = [
   { id: "overview", label: "Overview" },
   { id: "storage", label: "Storage" },
   { id: "cleanup", label: "Cleanup" },
+  { id: "apps", label: "Apps" },
   { id: "processes", label: "Processes" },
   { id: "settings", label: "Settings" },
 ] as const;
@@ -42,6 +45,7 @@ function make(id: string): View {
   switch (id) {
     case "overview": return overviewView(show);
     case "processes": return processesView();
+    case "apps": return appsView();
     case "storage": return storageView();
     case "cleanup": return cleanupView();
     default: return settingsView();
@@ -86,7 +90,7 @@ document.addEventListener("visibilitychange", () => {
   } else void loop(true);
 });
 
-const GROUPS: [string, string[]][] = [["Monitor", ["overview"]], ["Disk", ["storage", "cleanup"]], ["System", ["processes", "settings"]]];
+const GROUPS: [string, string[]][] = [["Monitor", ["overview"]], ["Disk", ["storage", "cleanup"]], ["System", ["apps", "processes", "settings"]]];
 for (const [label, ids] of GROUPS) {
   nav.append(h("div", { class: "nav-label", text: label }));
   for (const id of ids) {

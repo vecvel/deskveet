@@ -9,7 +9,7 @@ fn main() {
     let root = home.join("development/deskveet-art-test");
     let undo = std::env::temp_dir().join(format!("deskveet-art-undo-{}.json", std::process::id()));
     let eng = Engine::new(Registry::macos().unwrap(), home.clone(), Arc::new(RealSys::new(home.clone())), home.join(".Trash"), undo.clone());
-    let (scan, results) = eng.find_artifacts(&[root.clone()], &AtomicBool::new(false), &AtomicU64::new(0));
+    let (scan, results) = eng.find_artifacts(&[root.clone()], &Default::default(), &AtomicBool::new(false), &AtomicU64::new(0));
     println!("found {} project(s): {:?}", scan.projects.len(), scan.projects.iter().map(|p| (&p.name, p.total, p.items.iter().map(|i| i.dir.clone()).collect::<Vec<_>>())).collect::<Vec<_>>());
     let ids: Vec<String> = results.iter().flat_map(|r| r.items.iter().map(|i| i.id.clone())).collect();
     let plan = eng.plan(&results, &ids, &[], false);

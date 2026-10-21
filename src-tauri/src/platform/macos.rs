@@ -1,4 +1,4 @@
-use super::{MemExtra, Platform, Pressure, ProcFacts, ProcessInfo};
+use super::{Apps, MemExtra, Platform, Pressure, ProcFacts, ProcessInfo, RunningApp};
 use std::ffi::{c_void, CString};
 use std::io;
 use std::os::unix::ffi::OsStrExt;
@@ -268,6 +268,70 @@ impl Platform for Mac {
     }
 }
 
+// ───────────────────────────── Apps ─────────────────────────────
+
+impl Apps for Mac {
+    fn running_apps(&self) -> Vec<RunningApp> {
+        use objc2_app_kit::{NSApplicationActivationPolicy, NSWorkspace};
+        let ws = NSWorkspace::sharedWorkspace();
+        let mut out = Vec::new();
+        for app in ws.runningApplications().iter() {
+            if app.activationPolicy() != NSApplicationActivationPolicy::Regular || app.isTerminated() {
+                continue;
+            }
+            let pid = app.processIdentifier();
+            if pid <= 0 {
+                continue;
+            }
+            out.push(RunningApp {
+                pid: pid as u32,
+                name: app.localizedName().map(|s| s.to_string()).unwrap_or_default(),
+                bundle_id: app.bundleIdentifier().map(|s| s.to_string()).unwrap_or_default(),
+                bundle_path: app.bundleURL().and_then(|u| u.path()).map(|p| PathBuf::from(p.to_string())),
+            });
+        }
+        out
+    }
+
+    fn app_icon_png(&self, bundle_path: &Path) -> Option<Vec<u8>> {
+        use objc2::AllocAnyThread;
+        use objc2_app_kit::{NSBitmapImageFileType, NSBitmapImageRep, NSWorkspace};
+        use objc2_foundation::{NSDictionary, NSPoint, NSRect, NSSize, NSString};
+        let ws = NSWorkspace::sharedWorkspace();
+        let icon = ws.iconForFile(&NSString::from_str(bundle_path.to_str()?));
+        let mut rect = NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(64.0, 64.0));
+        // SAFETY: rect is a valid in/out pointer; no context or hints.
+        let cg = unsafe { icon.CGImageForProposedRect_context_hints(&mut rect, None, None) }?;
+        let rep = NSBitmapImageRep::initWithCGImage(NSBitmapImageRep::alloc(), &cg);
+        // SAFETY: empty properties dictionary is valid for PNG.
+        let data = unsafe { rep.representationUsingType_properties(NSBitmapImageFileType::PNG, &NSDictionary::new()) }?;
+        Some(data.to_vec())
+    }
+
+    fn responsible_pid(&self, pid: u32) -> Option<u32> {
+        // The same attribution Activity Monitor uses. Looked up at runtime so a missing symbol only
+        // means we fall back to grouping by bundle path.
+        type F = unsafe extern "C" fn(libc::pid_t) -> libc::pid_t;
+        static FN: std::sync::OnceLock<Option<F>> = std::sync::OnceLock::new();
+        let f = FN.get_or_init(|| {
+            let name = CString::new("responsibility_get_pid_responsible_for_pid").ok()?;
+            // SAFETY: dlsym with RTLD_DEFAULT and a NUL-terminated name; a null result is handled.
+            let p = unsafe { libc::dlsym(libc::RTLD_DEFAULT, name.as_ptr()) };
+            (!p.is_null()).then(|| unsafe { std::mem::transmute::<*mut c_void, F>(p) })
+        });
+        let r = unsafe { (*f)?(pid as libc::pid_t) };
+        (r > 0).then_some(r as u32)
+    }
+
+    fn quit_app(&self, pid: u32, force: bool) -> bool {
+        use objc2_app_kit::NSRunningApplication;
+        match NSRunningApplication::runningApplicationWithProcessIdentifier(pid as libc::pid_t) {
+            Some(app) => if force { app.forceTerminate() } else { app.terminate() },
+            None => false,
+        }
+    }
+}
+
 // ───────────────────────────── ProcessInfo ─────────────────────────────
 
 /// Never offered for quit, whatever the owner.
@@ -358,6 +422,22 @@ mod tests {
         assert_eq!(m.reveal_target(exe), PathBuf::from("/Applications/Google Chrome.app"));
         let plain = Path::new("/opt/homebrew/bin/node");
         assert_eq!(m.reveal_target(plain), PathBuf::from("/opt/homebrew/bin/node"));
+    }
+
+    #[test]
+    fn lists_running_apps_with_icons() {
+        let apps = Mac.running_apps();
+        assert!(apps.iter().any(|a| a.bundle_id == "com.apple.finder"), "Finder is always running: {:?}", apps.iter().map(|a| &a.bundle_id).collect::<Vec<_>>());
+        let finder = apps.iter().find(|a| a.bundle_id == "com.apple.finder").unwrap();
+        let png = Mac.app_icon_png(finder.bundle_path.as_ref().unwrap()).expect("icon");
+        assert_eq!(&png[1..4], b"PNG");
+        assert!(png.len() < 60_000, "icon should be small, got {} bytes", png.len());
+    }
+
+    #[test]
+    fn responsible_pid_is_known_for_this_process() {
+        let me = std::process::id();
+        assert!(Mac.responsible_pid(me).is_some(), "symbol should resolve on macOS");
     }
 
     #[test]

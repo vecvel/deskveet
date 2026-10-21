@@ -1,3 +1,4 @@
+pub mod apps;
 pub mod cleaner;
 mod commands;
 pub mod fsutil;
@@ -56,6 +57,9 @@ pub fn run() {
             commands::open_trash,
             commands::about,
             commands::fda_status,
+            commands::apps_list,
+            commands::rules_list,
+            commands::apps_quit,
             commands::ui_get_all,
             commands::ui_set,
             commands::artifact_state,

@@ -90,6 +90,25 @@ pub trait Platform: Send + Sync {
     fn pick_folder(&self) -> Option<PathBuf>;
 }
 
+/// A regular (Dock) application that is running right now.
+#[derive(Clone, Debug)]
+pub struct RunningApp {
+    pub pid: u32,
+    pub name: String,
+    pub bundle_id: String,
+    pub bundle_path: Option<PathBuf>,
+}
+
+pub trait Apps: Send + Sync {
+    fn running_apps(&self) -> Vec<RunningApp>;
+    /// 64px PNG of the app icon.
+    fn app_icon_png(&self, bundle_path: &Path) -> Option<Vec<u8>>;
+    /// Ask the app to quit (it may ask to save) or kill it. False when the app refused or is gone.
+    fn quit_app(&self, pid: u32, force: bool) -> bool;
+    /// The process macOS holds responsible for `pid` (an app for its web content, XPC services, ...).
+    fn responsible_pid(&self, pid: u32) -> Option<u32>;
+}
+
 /// Facts about a process, enough to decide whether we may offer to quit it.
 pub struct ProcFacts<'a> {
     pub pid: u32,

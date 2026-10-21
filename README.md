@@ -10,11 +10,17 @@ connection, and nothing in the dependency list opens a socket.
   CPU per core and load, top processes. Live while the window is visible, silent when it is hidden.
 - **Processes**: sortable, filterable, "Open in Finder", Quit / Force Quit with confirmation. System, root,
   other users' processes and a hard-coded list (`kernel_task`, `WindowServer`, `launchd`, ...) are never offered.
+- **Apps**: running apps like the macOS Force Quit window, with icon, memory and CPU (summed over every process
+  macOS holds the app responsible for), and storage (the app bundle plus its caches, support files, web data and
+  saved state). Quit asks the app like Cmd+Q does; Force Quit stops it after a confirmation. Select several to
+  quit them together. Finder, the Dock and Deskveet itself are protected.
 - **Storage**: parallel scan of any folder, sizes per folder, drill-down, treemap, cached on disk with an
   incremental re-scan. Every row has Reveal in Finder, Open, Copy path, Quick Look and Move to Trash.
 - **Cleanup**: 33 rules in [`rules/macos.toml`](rules/macos.toml) (Xcode, simulators, Android, Flutter, Node, Rust,
   Go, Python, Homebrew, CocoaPods, browsers, app caches, logs, Trash). Each rule says what happens if you delete
   it and how it comes back. Always preview first, then confirm. Dry run, undo log, Restore from the log.
+- **Rules on/off**: Settings → Cleanup rules lists every rule with a switch; rules that are off are not scanned
+  and their items are refused by the preview.
 - **Project artifacts**: `node_modules`, `target`, `build`, `.dart_tool`, `.gradle`, `__pycache__`, `DerivedData`
   below folders you choose, grouped by project with idle time and one-click "select stale".
 

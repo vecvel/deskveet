@@ -42,6 +42,8 @@ pub struct AppState {
     /// Small UI preferences (last tab, folders, view modes). Kept here, not in the webview, so they
     /// survive the window being released and recreated.
     ui: Mutex<std::collections::HashMap<String, serde_json::Value>>,
+    app_icons: Mutex<std::collections::HashMap<String, Option<String>>>,
+    app_sizes: Arc<crate::apps::SizeCache>,
 }
 
 fn ui_path() -> PathBuf {
@@ -67,8 +69,15 @@ impl AppState {
             plans: Mutex::new(VecDeque::new()),
             cleaning: AtomicBool::new(false),
             clean_cancel: Arc::new(AtomicBool::new(false)),
+            app_icons: Mutex::new(Default::default()),
+            app_sizes: Arc::new(Default::default()),
             ui: Mutex::new(std::fs::read(ui_path()).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default()),
         }
+    }
+
+    /// Rules the user switched off in Settings (stored with the other UI preferences).
+    pub fn disabled_rules(&self) -> HashSet<String> {
+        self.ui.lock().unwrap().get("rules.disabled").and_then(|v| v.as_array()).map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect()).unwrap_or_default()
     }
 
     /// Drop everything that can be rebuilt; called when the window (and its webview) goes away.
@@ -81,6 +90,9 @@ impl AppState {
             if let Ok(mut l) = self.loaded.lock() {
                 *l = None;
             }
+        }
+        if let Ok(mut i) = self.app_icons.lock() {
+            i.clear();
         }
         platform::trim_memory();
     }
@@ -339,11 +351,12 @@ pub fn cleanup_scan(app: AppHandle, state: State<'_, AppState>) -> Result<(), St
     *state.results.lock().unwrap() = Arc::new(Vec::new());
     let eng = state.engine.clone();
     let cancel = state.clean_cancel.clone();
+    let disabled = state.disabled_rules();
     std::thread::Builder::new()
         .name("cleanup-scan".into())
         .spawn(move || {
             let emit_app = app.clone();
-            let res = eng.scan_all(&cancel, &move |rr| {
+            let res = eng.scan_all(&cancel, &disabled, &move |rr| {
                 let _ = emit_app.emit("cleanup-rule", rr);
             });
             let st = app.state::<AppState>();
@@ -379,7 +392,7 @@ pub fn cleanup_plan(state: State<'_, AppState>, req: PlanReq) -> Result<Plan, St
     }
     let mut results = state.results.lock().unwrap().as_ref().clone();
     results.extend(state.art_results.lock().unwrap().iter().cloned());
-    let plan = state.engine.plan(&results, &req.ids, &req.picks, req.dry_run);
+    let plan = state.engine.plan_with(&results, &req.ids, &req.picks, req.dry_run, &state.disabled_rules());
     if plan.items.is_empty() {
         return Err("Nothing to clean.".into());
     }
@@ -497,6 +510,7 @@ pub fn artifact_scan(app: AppHandle, state: State<'_, AppState>, roots: Vec<Stri
     state.clean_cancel.store(false, Relaxed);
     let eng = state.engine.clone();
     let cancel = state.clean_cancel.clone();
+    let disabled = state.disabled_rules();
     std::thread::Builder::new()
         .name("artifact-scan".into())
         .spawn(move || {
@@ -511,7 +525,7 @@ pub fn artifact_scan(app: AppHandle, state: State<'_, AppState>, roots: Vec<Stri
                     }
                 })
             };
-            let (scan, results) = eng.find_artifacts(&roots, &cancel, &seen);
+            let (scan, results) = eng.find_artifacts(&roots, &disabled, &cancel, &seen);
             finished.store(true, Relaxed);
             let _ = ticker.join();
             let st = app.state::<AppState>();
@@ -590,4 +604,88 @@ pub fn fda_status(state: State<'_, AppState>) -> &'static str {
         Some(false) => "denied",
         None => "unknown",
     }
+}
+
+// ───────────────────────────── apps ─────────────────────────────
+
+#[tauri::command(async)]
+pub fn apps_list(state: State<'_, AppState>) -> Vec<crate::apps::AppRow> {
+    use crate::platform::Apps;
+    let me = std::process::id();
+    let mut mon = state.mon.lock().unwrap();
+    let apps = mon.plat().running_apps();
+    let usage = mon.app_usage(&apps);
+    let mut icons = state.app_icons.lock().unwrap();
+    let rows = apps
+        .iter()
+        .zip(usage)
+        .map(|(a, (mem, cpu, procs))| {
+            let icon = icons
+                .entry(a.bundle_id.clone())
+                .or_insert_with(|| a.bundle_path.as_deref().and_then(|p| mon.plat().app_icon_png(p)).map(|png| format!("data:image/png;base64,{}", crate::apps::base64(&png))))
+                .clone();
+            let sizes = state.app_sizes.get(&a.bundle_id);
+            crate::apps::AppRow {
+                pid: a.pid,
+                name: a.name.clone(),
+                bundle_id: a.bundle_id.clone(),
+                path: a.bundle_path.as_ref().map(|p| p.to_string_lossy().into_owned()),
+                mem,
+                cpu,
+                procs,
+                bundle_bytes: sizes.map(|s| s.0),
+                data_bytes: sizes.map(|s| s.1),
+                protected: crate::apps::protected_reason(a, me),
+                icon,
+            }
+        })
+        .collect();
+    drop(icons);
+    state.app_sizes.request(&apps, state.engine.home());
+    rows
+}
+
+#[derive(serde::Deserialize)]
+pub struct QuitTarget {
+    pub pid: u32,
+    pub bundle_id: String,
+}
+
+#[derive(Serialize)]
+pub struct QuitResult {
+    pub pid: u32,
+    pub ok: bool,
+    pub error: Option<String>,
+}
+
+/// Quit or force quit apps. Each target must still be the same running app and not protected.
+#[tauri::command(async)]
+pub fn apps_quit(state: State<'_, AppState>, targets: Vec<QuitTarget>, force: bool) -> Vec<QuitResult> {
+    use crate::platform::Apps;
+    let mon = state.mon.lock().unwrap();
+    let running = mon.plat().running_apps();
+    let me = std::process::id();
+    targets
+        .iter()
+        .map(|t| {
+            let res = |ok: bool, e: Option<String>| QuitResult { pid: t.pid, ok, error: e };
+            let Some(app) = running.iter().find(|a| a.pid == t.pid && a.bundle_id == t.bundle_id) else {
+                return res(false, Some("That app is no longer running.".into()));
+            };
+            if let Some(why) = crate::apps::protected_reason(app, me) {
+                return res(false, Some(format!("{} is protected ({why}).", app.name)));
+            }
+            if mon.plat().quit_app(app.pid, force) {
+                res(true, None)
+            } else {
+                res(false, Some(format!("{} did not quit.", app.name)))
+            }
+        })
+        .collect()
+}
+
+/// Every rule in the registry, for the Settings list.
+#[tauri::command(async)]
+pub fn rules_list(state: State<'_, AppState>) -> Vec<crate::cleaner::RuleInfo> {
+    state.engine.reg.rules.iter().map(Into::into).collect()
 }

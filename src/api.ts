@@ -77,6 +77,12 @@ export interface ArtifactState { busy: boolean; default_roots: string[]; scan: A
 
 export interface About { version: string; rules_version: string; rules_count: number; cache_dir: string; cache_bytes: number; data_dir: string; undo_log: string }
 
+export interface AppRow {
+  pid: number; name: string; bundle_id: string; path: string | null; mem: number; cpu: number; procs: number;
+  bundle_bytes: number | null; data_bytes: number | null; protected: string | null; icon: string | null;
+}
+export interface QuitResult { pid: number; ok: boolean; error: string | null }
+
 const call = <T>(cmd: string, args?: Record<string, unknown>) => window.__TAURI__.core.invoke<T>(cmd, args);
 
 export const api = {
@@ -105,6 +111,9 @@ export const api = {
   artifactState: () => call<ArtifactState>("artifact_state"),
   artifactScan: (roots: string[]) => call<void>("artifact_scan", { roots }),
   about: () => call<About>("about"),
+  appsList: () => call<AppRow[]>("apps_list"),
+  appsQuit: (targets: { pid: number; bundle_id: string }[], force: boolean) => call<QuitResult[]>("apps_quit", { targets, force }),
+  rulesList: () => call<RuleInfo[]>("rules_list"),
   fdaStatus: () => call<"granted" | "denied" | "unknown">("fda_status"),
   clearScanCache: () => call<number>("scan_clear_cache"),
   listen: <T>(name: string, cb: (payload: T) => void) => window.__TAURI__.event.listen<T>(name, (e) => cb(e.payload)),

@@ -6,6 +6,7 @@ import { openPreview } from "../preview";
 import { store } from "../store";
 import { openUndoLog } from "../undolog";
 import { artifactsView } from "./artifacts";
+import { disabledRules } from "./settings";
 import { header, View } from "./types";
 
 const ORDER = ["Developer", "Package managers", "Browsers", "App caches", "System"];
@@ -89,7 +90,8 @@ export function cleanupView(): View {
 
   function selectSafe() {
     selected.clear();
-    for (const r of results) if (r.rule.risk === "safe" && !r.rule.opt_in) for (const i of r.items) if (selectable(i)) selected.add(i.id);
+    const off = disabledRules();
+    for (const r of results) if (r.rule.risk === "safe" && !r.rule.opt_in && !off.has(r.rule.id)) for (const i of r.items) if (selectable(i)) selected.add(i.id);
     render();
   }
 
@@ -149,8 +151,10 @@ export function cleanupView(): View {
 
   function render() {
     if (!mounted) return;
-    const reclaim = results.reduce((s, r) => s + r.total, 0);
-    const safe = results.filter((r) => r.rule.risk === "safe" && !r.rule.opt_in).reduce((s, r) => s + r.total, 0);
+    const off = disabledRules();
+    const live = results.filter((r) => !off.has(r.rule.id));
+    const reclaim = live.reduce((s, r) => s + r.total, 0);
+    const safe = live.filter((r) => r.rule.risk === "safe" && !r.rule.opt_in).reduce((s, r) => s + r.total, 0);
     sub.textContent = scanning ? `Scanning… ${results.length} rule${results.length === 1 ? "" : "s"} checked` : results.length ? `${bytes(reclaim)} found · rules ${version}${scannedAt ? ` · scanned ${ago(scannedAt)}` : ""}` : "";
     box.replaceChildren();
 
@@ -175,7 +179,7 @@ export function cleanupView(): View {
         h("span", { text: `Deskveet can't see the Trash yet. ${FDA_HELP}` }),
         h("button", { class: "btn sm", text: "Open Full Disk Access settings", onclick: () => void api.openFda().catch((e) => toast(String(e), true)) })));
     }
-    const withItems = results.filter((r) => r.available && r.items.length);
+    const withItems = live.filter((r) => r.available && r.items.length);
     for (const cat of ORDER) {
       const rs = withItems.filter((r) => r.rule.category === cat).sort((a, b) => b.total - a.total);
       if (!rs.length) continue;

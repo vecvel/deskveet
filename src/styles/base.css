@@ -14,11 +14,11 @@ button, input, select, textarea { font: inherit; color: inherit; }
 input, textarea, select { outline: none; box-shadow: none; }
 [hidden] { display: none !important; }
 
-/* Scrollbars: transparent track, thumb hidden until the element is scrolled (see scrollbars.ts). */
-::-webkit-scrollbar { width: var(--scrollbar-size); height: var(--scrollbar-size); background: transparent; }
-::-webkit-scrollbar-track, ::-webkit-scrollbar-corner { background: transparent; }
-::-webkit-scrollbar-thumb { background: transparent; border-radius: 999px; border: 2px solid transparent; background-clip: padding-box; }
-.is-scrolling::-webkit-scrollbar-thumb { background-color: var(--scrollbar-thumb); }
+/* Scrollbars: native ones hidden, an overlay thumb is shown while scrolling (see scrollbars.ts). */
+* { scrollbar-width: none; }
+::-webkit-scrollbar { width: 0; height: 0; display: none; }
+.sb-thumb { position: fixed; width: var(--scrollbar-size); border-radius: 999px; background: var(--scrollbar-thumb); opacity: 0; transition: opacity .2s ease; z-index: 60; pointer-events: none; }
+.sb-thumb.on { opacity: 1; pointer-events: auto; }
 
 h1, h2, h3 { font-weight: 600; }
 .muted { color: var(--text-2); }

@@ -14,7 +14,7 @@ fn main() {
     let _ = std::fs::remove_file(&undo);
     let eng = Engine::new(Registry::macos().unwrap(), home.clone(), Arc::new(RealSys::new(home.clone())), home.join(".Trash"), undo.clone());
     let t = std::time::Instant::now();
-    let results = eng.scan_all(&AtomicBool::new(false), &|_| {});
+    let results = eng.scan_all(&AtomicBool::new(false), &Default::default(), &|_| {});
     if let Some(out) = std::env::var_os("DUMP_RESULTS") {
         std::fs::write(out, serde_json::to_vec(&results).unwrap()).unwrap();
     }

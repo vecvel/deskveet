@@ -304,6 +304,34 @@ impl Monitor {
         ProcList { rows, total }
     }
 
+    /// Memory, CPU and process count of each app: its own process, every process macOS holds it
+    /// responsible for (web content, XPC services) and anything else running from inside its bundle.
+    pub fn app_usage(&mut self, apps: &[platform::RunningApp]) -> Vec<(u64, f32, u32)> {
+        self.sys.refresh_cpu_usage();
+        self.refresh_procs();
+        let mut out = vec![(0u64, 0f32, 0u32); apps.len()];
+        let bundles: Vec<Option<&std::path::Path>> = apps.iter().map(|a| a.bundle_path.as_deref()).collect();
+        use crate::platform::Apps;
+        for (pid, p) in self.sys.processes() {
+            let pid = pid.as_u32();
+            let resp = self.plat.responsible_pid(pid);
+            let idx = apps
+                .iter()
+                .position(|a| a.pid == pid)
+                .or_else(|| resp.and_then(|r| apps.iter().position(|a| a.pid == r)))
+                .or_else(|| {
+                    let exe = p.exe()?;
+                    bundles.iter().position(|b| b.is_some_and(|b| exe.starts_with(b)))
+                });
+            if let Some(i) = idx {
+                out[i].0 += p.memory();
+                out[i].1 += p.cpu_usage();
+                out[i].2 += 1;
+            }
+        }
+        out
+    }
+
     /// Quit (SIGTERM) or force quit (SIGKILL). Re-validates everything: the UI is not trusted.
     pub fn signal(&mut self, pid: u32, start: u64, force: bool) -> Result<(), String> {
         let p = Pid::from_u32(pid);
