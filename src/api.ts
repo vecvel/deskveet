@@ -47,6 +47,10 @@ export interface RuleInfo {
   regenerates: string; tool: string | null; opt_in: boolean; needs_admin: boolean; custom: boolean;
   paths: string[]; exclude: string[];
 }
+export interface Point { t: number; b: number }
+export interface Schedule { every: "daily" | "weekly"; hour: number; weekday: number; review_ok: boolean; created?: number }
+export interface TrackInfo { points: Point[]; growth_per_day: number | null; last_cleaned: number | null; freed: number; alert: number | null; schedule: Schedule | null; schedule_problem: string | null }
+export interface Tracking { rules: Record<string, TrackInfo>; disk_free_pct: number | null }
 export interface Draft { id: string; name: string; category: string; paths: string[]; exclude: string[]; risk: Risk; description: string; busy: string[] }
 export interface TestItem { path: string; size: number; why: string | null }
 export interface RuleTest { ok: boolean; error: string | null; count: number; total: number; measured: number; items: TestItem[]; blocked: TestItem[] }
@@ -123,6 +127,11 @@ export const api = {
   rulesList: () => call<RuleInfo[]>("rules_list"),
   rulesStatus: () => call<RuleStatus[]>("rules_status"),
   rulesCustom: () => call<Draft[]>("rules_custom"),
+  trackingGet: () => call<Tracking>("tracking_get"),
+  alertSet: (ruleId: string, bytes: number | null) => call<void>("alert_set", { ruleId, bytes }),
+  diskAlertSet: (pct: number | null) => call<void>("disk_alert_set", { pct }),
+  scheduleSet: (ruleId: string, schedule: Schedule | null) => call<void>("schedule_set", { ruleId, schedule }),
+  notifyTest: () => call<void>("notify_test"),
   ruleTest: (draft: Draft) => call<RuleTest>("rule_test", { draft }),
   ruleSave: (draft: Draft) => call<string>("rule_save", { draft }),
   ruleDelete: (id: string) => call<void>("rule_delete", { id }),

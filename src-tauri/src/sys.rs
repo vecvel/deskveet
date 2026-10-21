@@ -137,6 +137,18 @@ fn login_shell() -> String {
     "/bin/zsh".into()
 }
 
+/// Total bytes of the volume holding `path`.
+pub fn volume_total(path: &Path) -> u64 {
+    use std::os::unix::ffi::OsStrExt;
+    let Ok(c) = std::ffi::CString::new(path.as_os_str().as_bytes()) else { return 0 };
+    let mut st: libc::statvfs = unsafe { std::mem::zeroed() };
+    // SAFETY: valid NUL-terminated path and out-pointer.
+    if unsafe { libc::statvfs(c.as_ptr(), &mut st) } != 0 {
+        return 0;
+    }
+    st.f_blocks as u64 * st.f_frsize as u64
+}
+
 /// Commands that, on a Mac without Xcode or the Command Line Tools, are stubs that pop up an
 /// "install developer tools" dialog instead of running. They are only run when the tools exist.
 const DEV_TOOL_SHIMS: &[&str] = &["xcrun", "python3", "pip3", "git", "clang", "make", "swift", "xcodebuild"];

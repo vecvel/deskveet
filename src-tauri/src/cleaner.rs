@@ -194,6 +194,8 @@ pub struct Report {
 
 #[derive(Default)]
 pub struct RunOpts {
+    /// "manual" (default) or "scheduled"; recorded in the undo log.
+    pub trigger: String,
     pub confirm_erase: bool,
     /// Item ids whose soft stops the user acknowledged.
     pub overrides: HashSet<String>,
@@ -646,6 +648,43 @@ impl Engine {
         Ok(vec![it])
     }
 
+    // ── scheduled cleaning ──
+
+    /// Why a rule can't be scheduled (`None` = it can). Only Trash rules; caution never; review needs consent.
+    pub fn schedule_problem(&self, rule_id: &str, review_ok: bool) -> Option<String> {
+        let reg = self.registry();
+        let Some(r) = reg.get(rule_id) else { return Some("Unknown rule".into()) };
+        if r.method != Method::Trash || r.kind == Kind::Artifact || r.dynamic.is_some() {
+            return Some("Only rules that move items to the Trash can be scheduled".into());
+        }
+        match r.risk {
+            Risk::Caution => Some("Caution rules are never cleaned automatically".into()),
+            Risk::Review if !review_ok => Some("Confirm that review rules may be cleaned automatically".into()),
+            _ => None,
+        }
+    }
+
+    /// Clean a rule without anyone watching: same scan, plan and run as a manual clean, but anything that
+    /// would need confirmation (running apps, open files, caution) is skipped, and it is all logged.
+    pub fn run_scheduled(&self, rule_id: &str, review_ok: bool, disabled: &HashSet<String>) -> Result<Report, String> {
+        if let Some(why) = self.schedule_problem(rule_id, review_ok) {
+            return Err(why);
+        }
+        if disabled.contains(rule_id) {
+            return Err("The rule is switched off".into());
+        }
+        let reg = self.registry();
+        let rule = reg.get(rule_id).ok_or("Unknown rule")?;
+        let procs = self.sys.processes();
+        let rr = self.scan_rule(rule, &procs);
+        let ids: Vec<String> = rr.items.iter().filter(|i| i.blocked.is_none()).map(|i| i.id.clone()).collect();
+        if ids.is_empty() {
+            return Ok(Report { run: String::new(), dry_run: false, results: vec![], trashed_bytes: 0, freed_bytes: 0, ok: 0, failed: 0, skipped: 0, undo_log: self.undo.path().to_string_lossy().into_owned() });
+        }
+        let plan = self.plan_with(&[rr], &ids, &[], false, disabled);
+        Ok(self.run(&plan, &RunOpts { trigger: "scheduled".into(), ..Default::default() }, &|_, _, _| {}))
+    }
+
     // ── custom rules ──
 
     /// Validate a draft and show what it would match. Nothing is changed on disk.
@@ -1067,6 +1106,9 @@ impl Engine {
                 e.command = it.argv.clone();
                 e.status = if res.status == "failed" { "failed".into() } else { "ok".into() };
                 e.error = res.error.clone();
+                if !opts.trigger.is_empty() {
+                    e.trigger = opts.trigger.clone();
+                }
                 log.push(e);
             }
             report.results.push(res);
@@ -1808,5 +1850,28 @@ mod tests {
         f.eng.set_custom_rules(&[]);
         assert!(f.eng.registry().get("user.old_dmgs").is_none());
         assert!(f.eng.registry().get("xcode.derived_data").is_some(), "built-in rules stay");
+    }
+
+    #[test]
+    fn scheduled_runs_only_clean_what_needs_no_confirmation_and_are_logged() {
+        let f = fx();
+        let dd = f.home.join("Library/Developer/Xcode/DerivedData");
+        put(&dd.join("A-1/x"), 100_000);
+        put(&dd.join("B-2/y"), 100_000);
+        f.sys.open.lock().unwrap().push((777, "clang".into(), dd.join("B-2/y"))); // B-2 is in use
+        let rep = f.eng.run_scheduled("xcode.derived_data", false, &HashSet::new()).unwrap();
+        assert_eq!((rep.ok, rep.skipped), (1, 1), "the busy one waits for a person");
+        assert!(!dd.join("A-1").exists() && dd.join("B-2/y").exists());
+        let log = f.eng.undo.list();
+        assert!(log.iter().all(|e| e.trigger == "scheduled"));
+        assert_eq!(f.eng.undo.summary()["xcode.derived_data"].1, rep.trashed_bytes);
+        // what may never be scheduled
+        assert!(f.eng.run_scheduled("xcode.archives", true, &HashSet::new()).is_err(), "caution");
+        assert!(f.eng.run_scheduled("appcache.library_caches", false, &HashSet::new()).is_err(), "review without consent");
+        assert!(f.eng.schedule_problem("appcache.library_caches", true).is_none());
+        assert!(f.eng.run_scheduled("brew.cache", true, &HashSet::new()).is_err(), "tool rules");
+        assert!(f.eng.run_scheduled("system.trash", true, &HashSet::new()).is_err(), "emptying the Trash");
+        let off: HashSet<String> = ["xcode.derived_data".to_string()].into();
+        assert!(f.eng.run_scheduled("xcode.derived_data", false, &off).is_err(), "switched off");
     }
 }

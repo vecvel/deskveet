@@ -44,6 +44,8 @@ pub struct AppState {
     ui: Mutex<std::collections::HashMap<String, serde_json::Value>>,
     app_icons: Mutex<std::collections::HashMap<String, Option<String>>>,
     app_sizes: Arc<crate::apps::SizeCache>,
+    pub history: Arc<crate::history::History>,
+    pub tracking: Arc<crate::schedule::Store>,
 }
 
 fn ui_path() -> PathBuf {
@@ -79,6 +81,8 @@ impl AppState {
             plans: Mutex::new(VecDeque::new()),
             cleaning: AtomicBool::new(false),
             clean_cancel: Arc::new(AtomicBool::new(false)),
+            history: Arc::new(crate::history::History::load(platform::data_dir().join("history.json"))),
+            tracking: Arc::new(crate::schedule::Store::load(platform::data_dir().join("tracking.json"))),
             app_icons: Mutex::new(Default::default()),
             app_sizes: Arc::new(Default::default()),
             ui: Mutex::new(std::fs::read(ui_path()).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default()),
@@ -371,6 +375,7 @@ pub fn cleanup_scan(app: AppHandle, state: State<'_, AppState>) -> Result<(), St
             });
             let st = app.state::<AppState>();
             if !cancel.load(Relaxed) {
+                st.history.record(scan::now_secs(), &res.iter().map(|r| (r.rule.id.clone(), r.total)).collect::<Vec<_>>());
                 *st.results.lock().unwrap() = Arc::new(res);
             }
             st.cleaning.store(false, Relaxed);
@@ -435,7 +440,7 @@ pub fn cleanup_run(app: AppHandle, state: State<'_, AppState>, req: RunReq) -> R
     }
     // Only ids that are part of the plan can be overridden.
     let in_plan: HashSet<&str> = plan.items.iter().map(|i| i.id.as_str()).collect();
-    let opts = RunOpts { confirm_erase: req.confirm_erase, overrides: req.overrides.iter().filter(|o| in_plan.contains(o.as_str())).cloned().collect() };
+    let opts = RunOpts { trigger: "manual".into(), confirm_erase: req.confirm_erase, overrides: req.overrides.iter().filter(|o| in_plan.contains(o.as_str())).cloned().collect() };
     let eng = state.engine.clone();
     let emit_app = app.clone();
     let report = eng.run(&plan, &opts, &move |done, total, current| {
@@ -805,4 +810,204 @@ pub fn rules_import(state: State<'_, AppState>) -> Result<Option<ImportResult>, 
     ur::save(&path, &all).map_err(|e| e.to_string())?;
     state.engine.set_custom_rules(&all);
     Ok(Some(ImportResult { added, skipped }))
+}
+
+// ───────────────────────────── tracking: history, alerts, schedules ─────────────────────────────
+
+use crate::history::{growth_per_day, Point, DAY};
+use crate::schedule::{is_due, Schedule};
+
+#[derive(Serialize)]
+pub struct TrackInfo {
+    /// Up to 60 points for a sparkline.
+    pub points: Vec<Point>,
+    pub growth_per_day: Option<f64>,
+    pub last_cleaned: Option<u64>,
+    pub freed: u64,
+    pub alert: Option<u64>,
+    pub schedule: Option<Schedule>,
+    /// Why it can't be scheduled (with review consent), if it can't.
+    pub schedule_problem: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct Tracking {
+    pub rules: std::collections::HashMap<String, TrackInfo>,
+    pub disk_free_pct: Option<f32>,
+}
+
+fn sample(v: &[Point], n: usize) -> Vec<Point> {
+    if v.len() <= n {
+        return v.to_vec();
+    }
+    (0..n).map(|i| v[i * (v.len() - 1) / (n - 1)]).collect()
+}
+
+#[tauri::command(async)]
+pub fn tracking_get(state: State<'_, AppState>) -> Tracking {
+    let now = scan::now_secs();
+    let cleaned = state.engine.undo.summary();
+    let cfg = state.tracking.cfg.lock().unwrap().clone();
+    let rules = state
+        .engine
+        .registry()
+        .rules
+        .iter()
+        .map(|r| {
+            let pts = state.history.get(&r.id);
+            let c = cleaned.get(&r.id);
+            (r.id.clone(), TrackInfo {
+                growth_per_day: growth_per_day(&pts, now, 30 * DAY),
+                points: sample(&pts, 60),
+                last_cleaned: c.map(|c| c.0),
+                freed: c.map(|c| c.1).unwrap_or(0),
+                alert: cfg.alerts.get(&r.id).copied(),
+                schedule: cfg.schedules.get(&r.id).copied(),
+                schedule_problem: state.engine.schedule_problem(&r.id, true),
+            })
+        })
+        .collect();
+    Tracking { rules, disk_free_pct: cfg.disk_free_pct }
+}
+
+#[tauri::command(async)]
+pub fn alert_set(state: State<'_, AppState>, rule_id: String, bytes: Option<u64>) {
+    let mut c = state.tracking.cfg.lock().unwrap();
+    match bytes.filter(|b| *b > 0) {
+        Some(b) => c.alerts.insert(rule_id, b),
+        None => c.alerts.remove(&rule_id),
+    };
+    drop(c);
+    state.tracking.save();
+}
+
+#[tauri::command(async)]
+pub fn disk_alert_set(state: State<'_, AppState>, pct: Option<f32>) {
+    state.tracking.cfg.lock().unwrap().disk_free_pct = pct.filter(|p| *p > 0.0 && *p < 100.0);
+    state.tracking.save();
+}
+
+#[tauri::command(async)]
+pub fn schedule_set(state: State<'_, AppState>, rule_id: String, schedule: Option<Schedule>) -> Result<(), String> {
+    if let Some(s) = &schedule {
+        if let Some(why) = state.engine.schedule_problem(&rule_id, s.review_ok) {
+            return Err(why);
+        }
+    }
+    let mut c = state.tracking.cfg.lock().unwrap();
+    match schedule {
+        Some(mut s) => {
+            s.hour = s.hour.min(23);
+            s.weekday = s.weekday.min(6);
+            s.created = scan::now_secs();
+            c.schedules.insert(rule_id, s);
+        }
+        None => {
+            c.schedules.remove(&rule_id);
+        }
+    }
+    drop(c);
+    state.tracking.save();
+    Ok(())
+}
+
+#[tauri::command(async)]
+pub fn notify_test(state: State<'_, AppState>) {
+    state.mon.lock().unwrap().plat().notify("Deskveet", "Notifications are working. You'll see alerts and schedule summaries like this.");
+}
+
+fn bytes_h(b: u64) -> String {
+    let (v, u) = if b >= 1_000_000_000 { (b as f64 / 1e9, "GB") } else { (b as f64 / 1e6, "MB") };
+    format!("{v:.1} {u}")
+}
+
+/// Runs for the life of the process (also with the window closed): due schedules every minute, alerts every
+/// 15 minutes. Sleeps the rest of the time; nothing is kept in memory between checks.
+pub fn start_tracker(app: AppHandle) {
+    const TICK: Duration = Duration::from_secs(60);
+    const ALERT_EVERY: u64 = 15 * 60;
+    let _ = std::thread::Builder::new().name("tracker".into()).spawn(move || {
+        platform::background_thread();
+        let mut last_alert_check = 0u64;
+        loop {
+            std::thread::sleep(TICK);
+            let st = app.state::<AppState>();
+            let now = scan::now_secs();
+            run_due_schedules(&app, &st, now);
+            if now.saturating_sub(last_alert_check) >= ALERT_EVERY {
+                last_alert_check = now;
+                check_alerts(&st, now);
+            }
+        }
+    });
+}
+
+fn run_due_schedules(app: &AppHandle, st: &AppState, now: u64) {
+    let due: Vec<(String, Schedule)> = {
+        let c = st.tracking.cfg.lock().unwrap();
+        c.schedules.iter().filter(|(id, s)| is_due(s, c.last_run.get(*id).copied(), s.created, now)).map(|(id, s)| (id.clone(), *s)).collect()
+    };
+    for (id, s) in due {
+        if st.cleaning.swap(true, Relaxed) {
+            return; // a person is scanning or cleaning: try again next minute
+        }
+        let res = st.engine.run_scheduled(&id, s.review_ok, &st.disabled_rules());
+        st.cleaning.store(false, Relaxed);
+        st.tracking.cfg.lock().unwrap().last_run.insert(id.clone(), now);
+        st.tracking.save();
+        let name = st.engine.registry().get(&id).map(|r| r.name.clone()).unwrap_or(id.clone());
+        match res {
+            Ok(rep) if rep.ok > 0 => {
+                let mut body = format!("Moved {} item{} ({}) to the Trash.", rep.ok, if rep.ok == 1 { "" } else { "s" }, bytes_h(rep.trashed_bytes));
+                if rep.skipped > 0 {
+                    body.push_str(&format!(" {} in use were left alone.", rep.skipped));
+                }
+                st.mon.lock().unwrap().plat().notify(&format!("Scheduled clean: {name}"), &body);
+                *st.results.lock().unwrap() = Arc::new(Vec::new());
+                let _ = app.emit("tracking-updated", ());
+            }
+            Ok(_) => {}
+            Err(e) => st.mon.lock().unwrap().plat().notify(&format!("Scheduled clean skipped: {name}"), &e),
+        }
+    }
+}
+
+fn check_alerts(st: &AppState, now: u64) {
+    let cfg = st.tracking.cfg.lock().unwrap().clone();
+    let recently = |key: &str| cfg.last_alert.get(key).is_some_and(|t| now.saturating_sub(*t) < DAY);
+    let mut fired: Vec<String> = Vec::new();
+    // disk
+    if let Some(pct) = cfg.disk_free_pct {
+        let home = st.engine.home().to_path_buf();
+        let free = crate::fsutil::free_bytes(&home);
+        let total = crate::sys::volume_total(&home);
+        if total > 0 && (free as f64 / total as f64 * 100.0) < pct as f64 && !recently("disk") {
+            st.mon.lock().unwrap().plat().notify("Your disk is almost full", &format!("{} free ({:.0}%). Open Deskveet to see what you can clean.", bytes_h(free), free as f64 / total as f64 * 100.0));
+            fired.push("disk".into());
+        }
+    }
+    // rules over their size alert (measured now, which also feeds the history)
+    if !cfg.alerts.is_empty() {
+        let procs: Vec<crate::sys::ProcInfo> = Vec::new();
+        let reg = st.engine.registry();
+        let mut sizes = Vec::new();
+        for (id, limit) in &cfg.alerts {
+            let Some(rule) = reg.get(id) else { continue };
+            let total = st.engine.scan_rule(rule, &procs).total;
+            sizes.push((id.clone(), total));
+            if total >= *limit && !recently(id) {
+                st.mon.lock().unwrap().plat().notify(&format!("{} is {}", rule.name, bytes_h(total)), &format!("That's over the {} alert you set. Open Deskveet to clean it.", bytes_h(*limit)));
+                fired.push(id.clone());
+            }
+        }
+        st.history.record(now, &sizes);
+    }
+    if !fired.is_empty() {
+        let mut c = st.tracking.cfg.lock().unwrap();
+        for k in fired {
+            c.last_alert.insert(k, now);
+        }
+        drop(c);
+        st.tracking.save();
+    }
 }

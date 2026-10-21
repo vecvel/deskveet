@@ -28,6 +28,9 @@ pub struct Entry {
     pub error: Option<String>,
     #[serde(default)]
     pub restored: bool,
+    /// manual | scheduled
+    #[serde(default)]
+    pub trigger: String,
 }
 
 impl Entry {
@@ -47,6 +50,7 @@ impl Entry {
             command: None,
             error: None,
             restored: false,
+            trigger: "manual".into(),
         }
     }
 }
@@ -107,6 +111,19 @@ impl UndoLog {
             e.restored = true;
         }
         self.write(&all)
+    }
+
+    /// Per rule: (last successful clean, total bytes cleaned), dry runs excluded.
+    pub fn summary(&self) -> std::collections::HashMap<String, (u64, u64)> {
+        let mut m = std::collections::HashMap::new();
+        for e in self.list() {
+            if e.status == "ok" && e.action != "dry-run" {
+                let s = m.entry(e.rule.clone()).or_insert((0u64, 0u64));
+                s.0 = s.0.max(e.ts);
+                s.1 += e.bytes;
+            }
+        }
+        m
     }
 
     pub fn clear(&self) -> io::Result<()> {

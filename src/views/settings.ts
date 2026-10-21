@@ -1,6 +1,7 @@
-import { api, About, Draft, Location, RuleInfo, RuleResult, RuleState, RuleStatus } from "../api";
+import { api, About, Draft, Location, RuleInfo, RuleResult, RuleState, RuleStatus, Tracking } from "../api";
 import { openPreview } from "../preview";
 import { emptyDraft, openRuleEditor } from "../rule_editor";
+import { openTrack, scheduleText, sparkline, trackSummary } from "../track";
 import { confirmDialog } from "../dom";
 import { h, toast } from "../dom";
 import { bytes, tilde } from "../fmt";
@@ -30,14 +31,15 @@ export function settingsView(): View {
   let query = "";
   let filter: "all" | "here" | "missing" | "off" | "custom" = "all";
   let customs: Draft[] = [];
+  let tracking: Tracking = { rules: {}, disk_free_pct: 10 };
   let checking = false;
 
   async function loadRules(redetect = false) {
     checking = true; render();
     try {
       if (redetect) locations = await api.locationsRedetect();
-      const [list, st, cs, locs, cu] = await Promise.all([api.rulesList(), api.rulesStatus(), api.cleanupState(), redetect ? Promise.resolve(locations) : api.locationsInfo(), api.rulesCustom()]);
-      rules = list; locations = locs; customs = cu;
+      const [list, st, cs, locs, cu, tr] = await Promise.all([api.rulesList(), api.rulesStatus(), api.cleanupState(), redetect ? Promise.resolve(locations) : api.locationsInfo(), api.rulesCustom(), api.trackingGet()]);
+      rules = list; locations = locs; customs = cu; tracking = tr;
       status = new Map(st.map((x) => [x.id, x]));
       scanned = new Map(cs.results.map((r) => [r.rule.id, r]));
     } catch (e) { toast(String(e), true); }
@@ -76,7 +78,10 @@ export function settingsView(): View {
     });
     const [cls, label] = st ? STATE[st.state] : ["", "Checking\u2026"];
     const ids = sc?.items.filter((i) => !i.blocked).map((i) => i.id) ?? [];
+    const tr = tracking.rules[r.id];
     const right = h("div", { class: "act2" });
+    const spark = tr ? sparkline(tr.points) : null;
+    if (spark) right.append(spark);
     if (sc && sc.total) right.append(h("div", { class: "sz", text: bytes(sc.total) }));
     const edit = (e: Event, d: Draft) => { e.preventDefault(); openRuleEditor(d, () => void loadRules()); };
     if (r.custom) {
@@ -92,6 +97,7 @@ export function settingsView(): View {
     } else if (r.paths.length && r.kind === "path") {
       right.append(h("button", { class: "link", text: "Duplicate", title: "Start a custom rule from this one", onclick: (e: Event) => edit(e, { ...emptyDraft(), name: `${r.name} (custom)`, category: r.category === "Project build artifacts" ? "Custom" : r.category, paths: r.paths, exclude: r.exclude, risk: r.risk, description: r.description }) }));
     }
+    if (r.kind !== "artifact") right.append(h("button", { class: "link", text: "Track\u2026", title: "Size alert and automatic cleaning", onclick: (e: Event) => { e.preventDefault(); openTrack(r, tr, () => void loadRules()); } }));
     if (ids.length && sw.checked) right.append(h("button", { class: "btn sm", text: "Clean now", onclick: (e: Event) => { e.preventDefault(); void openPreview({ ids, dryRun: store.get("cl.dry", false), onCleaned: () => void loadRules() }); } }));
     const where = (st?.locations ?? []).map((l) => h("div", { class: "tertiary small", text: l.path ? `Looks in ${tilde(l.path)} (${l.source === "default" ? "default location" : `from ${l.source}`})` : `No ${l.id.replace(/_/g, " ")} folder found` }));
     const skipped = (st?.locations ?? []).flatMap((l) => l.skipped).map((x) => h("div", { class: "why warnx small", text: x }));
@@ -100,7 +106,8 @@ export function settingsView(): View {
         h("div", { class: "row gap-2 wrap" }, h("span", { class: "nm", text: r.name }), ...(r.custom ? [h("span", { class: "chip", text: "Custom" })] : []),
           h("span", { class: `pill ${r.risk === "safe" ? "ok" : r.risk === "review" ? "warn" : "bad"}`, text: r.risk }),
           h("span", { class: "status" }, h("b", { class: cls, text: label }), st?.note && st.state !== "ready" ? ` ${st.note}` : st?.matches ? ` ${st.matches} found` : "")),
-        h("div", { class: "muted small", text: r.description }), ...where, ...skipped),
+        h("div", { class: "muted small", text: r.description }), ...where, ...skipped,
+        ...(tr && (trackSummary(tr) || tr.alert || tr.schedule) ? [h("div", { class: "tertiary small", text: [trackSummary(tr), tr.alert ? `alert at ${bytes(tr.alert)}` : "", tr.schedule ? `cleans ${scheduleText(tr.schedule).toLowerCase()}` : ""].filter(Boolean).join(" \u00b7 ") })] : [])),
       right);
   }
 
@@ -184,6 +191,11 @@ export function settingsView(): View {
           group<number>("Release delay", "release", rel, [[30, "30 s"], [60, "1 min"], [300, "5 min"], [0, "Never"]], () => {}))),
       rulesCard(),
       locationsCard(),
+      h("section", { class: "card" }, h("h2", { text: "Alerts" }),
+        row("Disk almost full", "A notification when your start-up disk has less free space than this. At most one a day.",
+          group<number>("Disk alert", "disk-alert-ui", Math.round(tracking.disk_free_pct ?? 0), [[0, "Off"], [5, "5%"], [10, "10%"], [15, "15%"], [20, "20%"]], (v) => { tracking.disk_free_pct = v || null; void api.diskAlertSet(v || null); })),
+        row("Test", "Shows a notification now, so you can allow Deskveet in System Settings if macOS asks.",
+          h("button", { class: "btn", text: "Send a test notification", onclick: () => void api.notifyTest() }))),
       h("section", { class: "card" }, h("h2", { text: "Data on this Mac" }),
         row("Scan cache", about ? `${bytes(about.cache_bytes)} in ${tilde(about.cache_dir)}. Safe to delete; the next scan is just slower.` : "…",
           h("button", { class: "btn", text: "Clear scan cache", onclick: async () => { const n = await api.clearScanCache(); toast(`Removed ${n} cache file${n === 1 ? "" : "s"}`); about = await api.about(); render(); } })),

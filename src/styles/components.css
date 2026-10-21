@@ -286,3 +286,7 @@ input.switch:checked::after { transform: translateX(14px); background: var(--acc
 .field textarea { font-family: var(--mono); font-size: var(--fs-sm); }
 .re-preview { border-top: 1px solid var(--border); padding-top: var(--sp-3); }
 .re-preview p { margin-bottom: var(--sp-2); }
+
+.spark-line { width: 96px; height: 22px; }
+.spark-line polyline { fill: none; stroke: var(--accent); stroke-width: 1.5; stroke-linejoin: round; stroke-linecap: round; }
+dialog:not(.wide) .re-form { margin-bottom: var(--sp-4); }

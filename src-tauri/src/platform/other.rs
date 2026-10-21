@@ -38,6 +38,7 @@ impl Platform for Generic {
     fn pick_folder(&self) -> Option<PathBuf> {
         None
     }
+    fn notify(&self, _: &str, _: &str) {}
     fn pick_save_file(&self, _: &str) -> Option<PathBuf> {
         None
     }

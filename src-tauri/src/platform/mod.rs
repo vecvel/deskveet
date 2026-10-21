@@ -86,6 +86,8 @@ pub trait Platform: Send + Sync {
     fn open_full_disk_access_settings(&self) -> io::Result<()>;
     /// Does *this running build* have Full Disk Access? `None` when it cannot be told.
     fn full_disk_access(&self) -> Option<bool>;
+    /// Show a notification. Falls back to a plain one when the app isn't running from its bundle.
+    fn notify(&self, title: &str, body: &str);
     /// Native "save as" and "open" dialogs for a rules file. `None` when cancelled.
     fn pick_save_file(&self, default_name: &str) -> Option<PathBuf>;
     fn pick_file(&self) -> Option<PathBuf>;

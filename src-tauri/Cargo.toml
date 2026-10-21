@@ -38,6 +38,9 @@ objc2-foundation = { version = "0.3", default-features = false, features = ["std
 # Running apps (the Apps tab): NSWorkspace / NSRunningApplication, and their icons as small PNGs.
 objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "libc", "NSRunningApplication", "NSWorkspace", "NSImage", "NSImageRep", "NSBitmapImageRep", "NSGraphicsContext", "objc2-core-graphics"] }
 objc2-core-graphics = { version = "0.3", default-features = false, features = ["std", "CGImage"] }
+# Alerts and schedule summaries as macOS notifications.
+objc2-user-notifications = { version = "0.3", default-features = false, features = ["std", "bitflags", "block2", "UNUserNotificationCenter", "UNNotificationContent", "UNNotificationRequest", "UNNotificationTrigger", "UNError"] }
+block2 = "0.6"
 
 [target.'cfg(not(target_os = "macos"))'.dependencies]
 trash = { version = "5", default-features = false }

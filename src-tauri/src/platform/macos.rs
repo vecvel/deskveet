@@ -169,6 +169,24 @@ fn spawn_reaped(cmd: &mut Command) -> io::Result<()> {
     Ok(())
 }
 
+fn un_notify(title: &str, body: &str) -> bool {
+    use objc2_foundation::NSString;
+    use objc2_user_notifications::{UNAuthorizationOptions, UNMutableNotificationContent, UNNotificationRequest, UNUserNotificationCenter};
+    static ASKED: std::sync::Once = std::sync::Once::new();
+    let center = UNUserNotificationCenter::currentNotificationCenter();
+    ASKED.call_once(|| {
+        let done = block2::RcBlock::new(|_granted: objc2::runtime::Bool, _err: *mut objc2_foundation::NSError| {});
+        center.requestAuthorizationWithOptions_completionHandler(UNAuthorizationOptions::Alert | UNAuthorizationOptions::Sound, &done);
+    });
+    let content = UNMutableNotificationContent::new();
+    content.setTitle(&NSString::from_str(title));
+    content.setBody(&NSString::from_str(body));
+    let id = NSString::from_str(&format!("deskveet-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0)));
+    let req = UNNotificationRequest::requestWithIdentifier_content_trigger(&id, &content, None);
+    center.addNotificationRequest_withCompletionHandler(&req, None);
+    true
+}
+
 fn osascript_path(script: &str) -> Option<PathBuf> {
     let out = Command::new("/usr/bin/osascript").args(["-e", script]).stderr(Stdio::null()).output().ok()?;
     let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
@@ -258,6 +276,16 @@ impl Platform for Mac {
             }
         }
         blocked.then_some(false)
+    }
+
+    fn notify(&self, title: &str, body: &str) {
+        // UNUserNotificationCenter only works inside an .app bundle (it raises otherwise, e.g. in tests).
+        let in_bundle = std::env::current_exe().ok().is_some_and(|p| p.to_string_lossy().contains(".app/Contents/MacOS/"));
+        if in_bundle && un_notify(title, body) {
+            return;
+        }
+        let esc = |s: &str| s.replace(['"', '\\'], "'");
+        let _ = spawn_reaped(Command::new("/usr/bin/osascript").args(["-e", &format!("display notification \"{}\" with title \"{}\"", esc(body), esc(title))]));
     }
 
     fn pick_save_file(&self, default_name: &str) -> Option<PathBuf> {

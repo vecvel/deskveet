@@ -2,11 +2,13 @@ pub mod apps;
 pub mod cleaner;
 mod commands;
 pub mod fsutil;
+pub mod history;
 pub mod locate;
 pub mod platform;
 pub mod rules;
 pub mod safety;
 pub mod scan;
+pub mod schedule;
 pub mod sys;
 pub mod sysmon;
 pub mod undo;
@@ -32,6 +34,10 @@ pub fn show_main(app: &AppHandle) {
 pub fn run() {
     let app = tauri::Builder::default()
         .manage(commands::AppState::new())
+        .setup(|app| {
+            commands::start_tracker(app.handle().clone());
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             commands::overview,
             commands::processes,
@@ -64,6 +70,11 @@ pub fn run() {
             commands::locations_info,
             commands::rules_status,
             commands::rules_custom,
+            commands::tracking_get,
+            commands::alert_set,
+            commands::disk_alert_set,
+            commands::schedule_set,
+            commands::notify_test,
             commands::rule_test,
             commands::rule_save,
             commands::rule_delete,
