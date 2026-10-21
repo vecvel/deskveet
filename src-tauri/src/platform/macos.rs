@@ -491,26 +491,45 @@ mod tests {
         assert!(Mac.responsible_pid(me).is_some(), "symbol should resolve on macOS");
     }
 
+    /// Runs in a child process (see the test below) so no other test's allocations are counted.
     #[test]
-    fn listing_apps_repeatedly_does_not_leak_objc_objects() {
-        // Worker threads have no autorelease pool. Before the fix each call leaked every app object.
+    #[ignore]
+    fn leak_probe_child() {
         let rss = || {
             let mut ru: libc::rusage = unsafe { std::mem::zeroed() };
             unsafe { libc::getrusage(libc::RUSAGE_SELF, &mut ru) };
             ru.ru_maxrss as u64
         };
-        let h = std::thread::spawn(move || {
+        let grew = std::thread::spawn(move || {
             for _ in 0..50 {
                 let _ = Mac.running_apps();
             }
             let before = rss();
-            for _ in 0..1500 {
+            for _ in 0..2000 {
                 let _ = Mac.running_apps();
             }
             rss().saturating_sub(before)
-        });
-        let grew = h.join().unwrap();
-        assert!(grew < 8 * 1024 * 1024, "peak memory grew by {grew} bytes over 1500 calls");
+        })
+        .join()
+        .unwrap();
+        println!("LEAK_PROBE_GREW={grew}");
+    }
+
+    #[test]
+    fn listing_apps_repeatedly_does_not_leak_objc_objects() {
+        // Worker threads have no autorelease pool; before the fix every call leaked each app object.
+        let out = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "platform::macos::tests::leak_probe_child", "--ignored", "--nocapture", "--test-threads=1"])
+            .output()
+            .unwrap();
+        let text = String::from_utf8_lossy(&out.stdout);
+        let grew: u64 = text
+            .split("LEAK_PROBE_GREW=")
+            .nth(1)
+            .and_then(|v| v.split_whitespace().next())
+            .and_then(|v| v.parse().ok())
+            .expect("probe output");
+        assert!(grew < 4 * 1024 * 1024, "peak memory grew by {grew} bytes over 2000 calls");
     }
 
     #[test]
