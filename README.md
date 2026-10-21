@@ -21,11 +21,8 @@
 </p>
 
 <p align="center">
-  <video src="https://github.com/vecvel/deskveet/raw/main/assets/deskveet-promo.mp4" poster="assets/deskveet-promo.jpg" width="720" controls muted playsinline></video>
-</p>
-<p align="center">
   <a href="assets/deskveet-promo.mp4"><img src="assets/deskveet-promo.jpg" width="720" alt="Deskveet in 20 seconds: watch the video"></a><br>
-  <sub>Deskveet in 20 seconds. Click to play if the video doesn't show above.</sub>
+  <sub>Deskveet in 20 seconds. Click the picture to play the video.</sub>
 </p>
 
 ---
