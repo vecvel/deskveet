@@ -93,6 +93,11 @@ pub trait Platform: Send + Sync {
         self.notify(title, body);
         Ok(())
     }
+    /// A native yes/no question with the safe choice (Cancel) as the default. `true` only when the person
+    /// picked `ok`. Used where there is no window to show our own dialog in, such as the menu bar.
+    fn confirm(&self, _title: &str, _message: &str, _ok: &str) -> bool {
+        false
+    }
     /// Open the system settings page where notifications for this app are turned on or off.
     fn open_notification_settings(&self) -> io::Result<()> {
         Ok(())

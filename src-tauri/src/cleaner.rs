@@ -201,6 +201,9 @@ pub struct RunOpts {
     pub overrides: HashSet<String>,
 }
 
+/// The built-in rule that empties the Trash (rules/macos.toml).
+pub const TRASH_RULE: &str = "system.trash";
+
 // ───────────────────────────── engine ─────────────────────────────
 
 pub struct Engine {
@@ -683,6 +686,31 @@ impl Engine {
         let ids: Vec<String> = results.iter().flat_map(|r| r.items.iter().filter(|i| i.blocked.is_none()).map(|i| i.id.clone())).collect();
         let plan = self.plan_with(&results, &ids, &[], false, disabled);
         self.run(&plan, &RunOpts { trigger: "menu".into(), ..Default::default() }, &|_, _, _| {})
+    }
+
+    // ── the Trash, from the menu bar ──
+
+    /// What emptying the Trash would free right now, measured the way the Trash rule measures it.
+    pub fn trash_size(&self) -> u64 {
+        let reg = self.registry();
+        reg.get(TRASH_RULE).map_or(0, |r| self.scan_rule(r, &self.sys.processes()).total)
+    }
+
+    /// Empty the Trash for good. Call only after the person confirmed: it runs the Trash rule through the same
+    /// plan, safety checks and undo log as Cleanup, with the permanent deletion confirmed. `None` when the
+    /// rule is turned off or the Trash is empty.
+    pub fn empty_trash(&self, disabled: &HashSet<String>) -> Option<Report> {
+        let reg = self.registry();
+        let rule = reg.get(TRASH_RULE).filter(|r| !disabled.contains(&r.id))?;
+        let result = self.scan_rule(rule, &self.sys.processes());
+        let ids: Vec<String> = result.items.iter().filter(|i| i.blocked.is_none()).map(|i| i.id.clone()).collect();
+        if ids.is_empty() {
+            return None;
+        }
+        let plan = self.plan_with(&[result], &ids, &[], false, disabled);
+        // The confirmation dialog stands in for both the caution tick-box and the permanent-deletion check.
+        let opts = RunOpts { trigger: "menu".into(), confirm_erase: true, overrides: ids.iter().cloned().collect() };
+        Some(self.run(&plan, &opts, &|_, _, _| {}))
     }
 
     // ── scheduled cleaning ──
@@ -1652,6 +1680,26 @@ mod tests {
         assert!(fs::read_dir(f.home.join(".Trash")).unwrap().next().is_none());
         assert!(f.home.join(".Trash").is_dir(), "the Trash folder itself stays");
         assert!(f.home.join("Documents/keep.txt").exists());
+    }
+
+    #[test]
+    fn empty_trash_from_the_menu_erases_only_the_trash() {
+        let f = fx();
+        assert!(f.eng.empty_trash(&HashSet::new()).is_none(), "nothing to do when the Trash is empty");
+        put(&f.home.join(".Trash/old.zip"), 200_000);
+        put(&f.home.join(".Trash/folder/inner.txt"), 100_000);
+        put(&f.home.join("Documents/keep.txt"), 1_000);
+        assert!(f.eng.trash_size() >= 300_000);
+        let off: HashSet<String> = [TRASH_RULE.to_string()].into();
+        assert!(f.eng.empty_trash(&off).is_none(), "a Trash rule turned off in Settings is respected");
+        assert!(f.home.join(".Trash/old.zip").exists());
+        let rep = f.eng.empty_trash(&HashSet::new()).expect("ran");
+        assert_eq!((rep.ok, rep.failed, rep.skipped), (1, 0, 0));
+        assert!(rep.freed_bytes >= 300_000);
+        assert!(fs::read_dir(f.home.join(".Trash")).unwrap().next().is_none());
+        assert!(f.home.join(".Trash").is_dir(), "the Trash folder itself stays");
+        assert!(f.home.join("Documents/keep.txt").exists());
+        assert_eq!(f.eng.trash_size(), 0);
     }
 
     #[test]

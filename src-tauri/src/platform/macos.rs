@@ -365,6 +365,17 @@ impl Platform for Mac {
         Ok(())
     }
 
+    fn confirm(&self, title: &str, message: &str, ok: &str) -> bool {
+        let q = |s: &str| s.replace(['"', '\\'], "'");
+        let script = format!(
+            "display dialog \"{}\" with title \"{}\" buttons {{\"Cancel\", \"{}\"}} default button \"Cancel\" cancel button \"Cancel\" with icon caution",
+            q(message), q(title), q(ok)
+        );
+        // Cancel exits with an error; only the ok button returns normally.
+        Command::new("/usr/bin/osascript").args(["-e", &script]).stderr(Stdio::null()).output()
+            .is_ok_and(|o| o.status.success() && String::from_utf8_lossy(&o.stdout).contains(&format!("button returned:{}", q(ok))))
+    }
+
     fn open_notification_settings(&self) -> io::Result<()> {
         spawn_reaped(Command::new("/usr/bin/open").arg("x-apple.systempreferences:com.apple.Notifications-Settings.extension?id=app.deskveet.desktop"))
     }
