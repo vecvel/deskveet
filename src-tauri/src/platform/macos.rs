@@ -169,22 +169,94 @@ fn spawn_reaped(cmd: &mut Command) -> io::Result<()> {
     Ok(())
 }
 
-fn un_notify(title: &str, body: &str) -> bool {
-    use objc2_foundation::NSString;
-    use objc2_user_notifications::{UNAuthorizationOptions, UNMutableNotificationContent, UNNotificationRequest, UNUserNotificationCenter};
-    static ASKED: std::sync::Once = std::sync::Once::new();
-    let center = UNUserNotificationCenter::currentNotificationCenter();
-    ASKED.call_once(|| {
-        let done = block2::RcBlock::new(|_granted: objc2::runtime::Bool, _err: *mut objc2_foundation::NSError| {});
-        center.requestAuthorizationWithOptions_completionHandler(UNAuthorizationOptions::Alert | UNAuthorizationOptions::Sound, &done);
-    });
-    let content = UNMutableNotificationContent::new();
-    content.setTitle(&NSString::from_str(title));
-    content.setBody(&NSString::from_str(body));
-    let id = NSString::from_str(&format!("deskveet-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0)));
-    let req = UNNotificationRequest::requestWithIdentifier_content_trigger(&id, &content, None);
-    center.addNotificationRequest_withCompletionHandler(&req, None);
-    true
+mod un {
+    //! macOS notifications through UNUserNotificationCenter.
+    use objc2::rc::Retained;
+    use objc2::runtime::{NSObject, NSObjectProtocol, ProtocolObject};
+    use objc2::{define_class, msg_send, AllocAnyThread};
+    use objc2_foundation::{NSError, NSString};
+    use objc2_user_notifications::{
+        UNAuthorizationOptions, UNAuthorizationStatus, UNMutableNotificationContent, UNNotification, UNNotificationPresentationOptions,
+        UNNotificationRequest, UNNotificationSettings, UNUserNotificationCenter, UNUserNotificationCenterDelegate,
+    };
+    use std::ptr::NonNull;
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    define_class!(
+        // macOS hides an app's own notifications while that app is in front, unless its delegate asks for them.
+        #[unsafe(super(NSObject))]
+        #[name = "DeskveetNotificationDelegate"]
+        struct Delegate;
+
+        unsafe impl NSObjectProtocol for Delegate {}
+
+        unsafe impl UNUserNotificationCenterDelegate for Delegate {
+            #[unsafe(method(userNotificationCenter:willPresentNotification:withCompletionHandler:))]
+            fn will_present(&self, _center: &UNUserNotificationCenter, _n: &UNNotification, done: &block2::DynBlock<dyn Fn(UNNotificationPresentationOptions)>) {
+                done.call((UNNotificationPresentationOptions::Banner | UNNotificationPresentationOptions::List | UNNotificationPresentationOptions::Sound,));
+            }
+        }
+    );
+
+    fn center() -> Retained<UNUserNotificationCenter> {
+        static DELEGATE: std::sync::Once = std::sync::Once::new();
+        let c = UNUserNotificationCenter::currentNotificationCenter();
+        DELEGATE.call_once(|| {
+            let d: Retained<Delegate> = unsafe { msg_send![super(Delegate::alloc().set_ivars(())), init] };
+            c.setDelegate(Some(ProtocolObject::from_ref(&*d)));
+            std::mem::forget(d); // the center keeps only a weak reference; this one lives as long as the app
+        });
+        c
+    }
+
+    fn status(c: &UNUserNotificationCenter) -> Option<UNAuthorizationStatus> {
+        let (tx, rx) = mpsc::channel();
+        let done = block2::RcBlock::new(move |s: NonNull<UNNotificationSettings>| {
+            let _ = tx.send(unsafe { s.as_ref() }.authorizationStatus());
+        });
+        c.getNotificationSettingsWithCompletionHandler(&done);
+        rx.recv_timeout(Duration::from_secs(5)).ok()
+    }
+
+    /// Ask once; waits for the person to answer the system prompt (up to two minutes).
+    fn ask(c: &UNUserNotificationCenter) -> bool {
+        let (tx, rx) = mpsc::channel();
+        let done = block2::RcBlock::new(move |granted: objc2::runtime::Bool, _e: *mut NSError| {
+            let _ = tx.send(granted.as_bool());
+        });
+        c.requestAuthorizationWithOptions_completionHandler(UNAuthorizationOptions::Alert | UNAuthorizationOptions::Sound, &done);
+        rx.recv_timeout(Duration::from_secs(120)).unwrap_or(false)
+    }
+
+    pub const OFF: &str = "Notifications are turned off for Deskveet. Turn them on in System Settings, Notifications, Deskveet.";
+
+    pub fn send(title: &str, body: &str) -> Result<(), String> {
+        let c = center();
+        match status(&c) {
+            Some(UNAuthorizationStatus::Denied) => return Err(OFF.into()),
+            Some(UNAuthorizationStatus::NotDetermined) | None => {
+                if !ask(&c) {
+                    return Err(OFF.into());
+                }
+            }
+            _ => {}
+        }
+        let content = UNMutableNotificationContent::new();
+        content.setTitle(&NSString::from_str(title));
+        content.setBody(&NSString::from_str(body));
+        let id = NSString::from_str(&format!("deskveet-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0)));
+        let req = UNNotificationRequest::requestWithIdentifier_content_trigger(&id, &content, None);
+        let (tx, rx) = mpsc::channel();
+        let done = block2::RcBlock::new(move |e: *mut NSError| {
+            let _ = tx.send(unsafe { e.as_ref() }.map(|e| e.localizedDescription().to_string()));
+        });
+        c.addNotificationRequest_withCompletionHandler(&req, Some(&done));
+        match rx.recv_timeout(Duration::from_secs(5)) {
+            Ok(Some(err)) => Err(format!("macOS did not show the notification: {err}")),
+            _ => Ok(()),
+        }
+    }
 }
 
 fn osascript_path(script: &str) -> Option<PathBuf> {
@@ -279,13 +351,22 @@ impl Platform for Mac {
     }
 
     fn notify(&self, title: &str, body: &str) {
+        let _ = self.notify_checked(title, body);
+    }
+
+    fn notify_checked(&self, title: &str, body: &str) -> Result<(), String> {
         // UNUserNotificationCenter only works inside an .app bundle (it raises otherwise, e.g. in tests).
         let in_bundle = std::env::current_exe().ok().is_some_and(|p| p.to_string_lossy().contains(".app/Contents/MacOS/"));
-        if in_bundle && objc2::rc::autoreleasepool(|_| un_notify(title, body)) {
-            return;
+        if in_bundle {
+            return objc2::rc::autoreleasepool(|_| un::send(title, body));
         }
         let esc = |s: &str| s.replace(['"', '\\'], "'");
         let _ = spawn_reaped(Command::new("/usr/bin/osascript").args(["-e", &format!("display notification \"{}\" with title \"{}\"", esc(body), esc(title))]));
+        Ok(())
+    }
+
+    fn open_notification_settings(&self) -> io::Result<()> {
+        spawn_reaped(Command::new("/usr/bin/open").arg("x-apple.systempreferences:com.apple.Notifications-Settings.extension?id=app.deskveet.desktop"))
     }
 
     fn pick_save_file(&self, default_name: &str) -> Option<PathBuf> {

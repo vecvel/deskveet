@@ -938,9 +938,15 @@ pub fn schedule_set(state: State<'_, AppState>, rule_id: String, schedule: Optio
     Ok(())
 }
 
+/// Sends a sample notification. On failure (usually notifications turned off for the app) it opens the
+/// Notifications page in System Settings and returns the reason.
 #[tauri::command(async)]
-pub fn notify_test(state: State<'_, AppState>) {
-    state.mon.lock().unwrap().plat().notify("Deskveet", "Notifications are working. You'll see alerts and schedule summaries like this.");
+pub fn notify_test() -> Result<(), String> {
+    let plat = crate::platform::current();
+    use crate::platform::Platform;
+    plat.notify_checked("Deskveet", "Notifications are working. You'll see alerts and schedule summaries like this.").inspect_err(|_| {
+        let _ = plat.open_notification_settings();
+    })
 }
 
 fn bytes_h(b: u64) -> String {

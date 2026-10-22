@@ -213,7 +213,7 @@ export function settingsView(): View {
         row("Disk almost full", "A notification when your start-up disk has less free space than this. At most one a day.",
           group<number>("Disk alert", "disk-alert-ui", Math.round(tracking.disk_free_pct ?? 0), [[0, "Off"], [5, "5%"], [10, "10%"], [15, "15%"], [20, "20%"]], (v) => { tracking.disk_free_pct = v || null; void api.diskAlertSet(v || null); })),
         row("Test", "Shows a notification now, so you can allow Deskveet in System Settings if macOS asks.",
-          h("button", { class: "btn", text: "Send a test notification", onclick: () => void api.notifyTest() }))),
+          h("button", { class: "btn", text: "Send a test notification", onclick: () => api.notifyTest().then(() => toast("Test notification sent"), (e) => toast(String(e), true)) }))),
       h("section", { class: "card" }, h("h2", { text: "Data on this Mac" }),
         row("Scan cache", about ? `${bytes(about.cache_bytes)} in ${tilde(about.cache_dir)}. Safe to delete; the next scan is just slower.` : "…",
           h("button", { class: "btn", text: "Clear scan cache", onclick: async () => { const n = await api.clearScanCache(); toast(`Removed ${n} cache file${n === 1 ? "" : "s"}`); about = await api.about(); render(); } })),

@@ -88,6 +88,15 @@ pub trait Platform: Send + Sync {
     fn full_disk_access(&self) -> Option<bool>;
     /// Show a notification. Falls back to a plain one when the app isn't running from its bundle.
     fn notify(&self, title: &str, body: &str);
+    /// Like `notify`, but says why nothing was shown (for example notifications are turned off for the app).
+    fn notify_checked(&self, title: &str, body: &str) -> Result<(), String> {
+        self.notify(title, body);
+        Ok(())
+    }
+    /// Open the system settings page where notifications for this app are turned on or off.
+    fn open_notification_settings(&self) -> io::Result<()> {
+        Ok(())
+    }
     /// Native "save as" and "open" dialogs for a rules file. `None` when cancelled.
     fn pick_save_file(&self, default_name: &str) -> Option<PathBuf>;
     fn pick_file(&self) -> Option<PathBuf>;
