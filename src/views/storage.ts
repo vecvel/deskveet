@@ -194,7 +194,10 @@ export function storageView(): View {
           onclick: () => r?.kind === "dir" && void go(r.path),
           onkeydown: (e: KeyboardEvent) => { if (e.key === "Enter" && r?.kind === "dir") void go(r.path); },
         });
-        if (q.w > 74 && q.h > 36) el.append(h("b", { text: r ? r.name : "Other" }), h("span", { text: bytes(c.size) }));
+        // label heights follow .cell in components.css: 6px padding top and bottom, 18px lines, 1px gap
+        const name = r ? r.name : "Other", inner = q.h - 2;
+        if (q.w > 74 && inner >= 50) el.append(h("b", { text: name }), h("span", { text: bytes(c.size) }));
+        else if (q.w > 74 && inner >= 30) { el.classList.add("one"); el.append(h("b", { text: name }), h("span", { text: bytes(c.size) })); }
         el.dataset.i = String(i);
         if (seen.has(i)) el.classList.add("in");
         return el;

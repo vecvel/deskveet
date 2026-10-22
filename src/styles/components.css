@@ -161,6 +161,9 @@ dialog .btns { display: flex; justify-content: flex-end; gap: 8px; }
 .cell.dir { cursor: pointer; }
 .cell b { font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cell span { opacity: .85; }
+/* a cell with room for one line only: name and size side by side, the name shortened first */
+.cell.one { flex-direction: row; align-items: baseline; gap: 6px; }
+.cell.one span { flex: none; white-space: nowrap; }
 
 /* cleanup */
 .cleanup { display: flex; flex-direction: column; gap: var(--sp-4); padding-bottom: 80px; }

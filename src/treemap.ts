@@ -36,7 +36,7 @@ export function squarify(sizes: number[], W: number, H: number): Rect[] {
  *  further bands below it, each a squarified treemap of its own. A band takes as many items as stay readable
  *  (every cell at least `minW` x `minH`), so small items get a labelled cell instead of a sliver.
  *  Sizes must be sorted descending. Returns the rects and the total height of the canvas. */
-export function bandedTreemap(sizes: number[], W: number, H: number, minW = 80, minH = 42, gap = 2): { rects: Rect[]; height: number } {
+export function bandedTreemap(sizes: number[], W: number, H: number, minW = 80, minH = 52, gap = 2): { rects: Rect[]; height: number } {
   const rects: Rect[] = [];
   if (W <= 0 || H <= 0) return { rects: sizes.map(() => ({ x: 0, y: 0, w: 0, h: 0 })), height: H };
   const readable = (rs: Rect[]) => rs.every((r) => r.w >= minW && r.h >= minH);
@@ -57,7 +57,10 @@ export function bandedTreemap(sizes: number[], W: number, H: number, minW = 80, 
     if (!first && i + n === sizes.length) {
       const prevAvg = rects.length ? rects.reduce((s, r) => s + r.w * r.h, 0) / rects.length : W * h;
       const fit = Math.min(h, Math.max(minH * 1.6, (n * Math.min(prevAvg, (W * h) / n)) / W));
-      if (fit < h) { h = fit; best = squarify(sizes.slice(i, i + n), W, h); }
+      if (fit < h) {
+        const shrunk = squarify(sizes.slice(i, i + n), W, fit);
+        if (readable(shrunk)) { h = fit; best = shrunk; } // only when every cell still fits its label
+      }
     }
     for (const r of best) rects.push({ x: r.x, y: r.y + y, w: r.w, h: r.h });
     y += h + gap;
