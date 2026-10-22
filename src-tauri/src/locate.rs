@@ -15,6 +15,9 @@ use std::path::{Path, PathBuf};
 #[derive(Deserialize, Serialize, Clone, Debug)]
 pub struct LocationDef {
     pub id: String,
+    /// What people call it, for Settings ("Android virtual devices"). Falls back to the id.
+    #[serde(default)]
+    pub name: Option<String>,
     /// Variables to try, in order. `VAR/sub/dir` means "$VAR joined with sub/dir".
     #[serde(default)]
     pub env: Vec<String>,
@@ -27,6 +30,7 @@ pub struct LocationDef {
 #[derive(Serialize, Clone, Debug, PartialEq)]
 pub struct Resolved {
     pub id: String,
+    pub name: String,
     pub path: Option<PathBuf>,
     /// "default", "$GRADLE_USER_HOME", "`go env GOCACHE`".
     pub source: String,
@@ -35,6 +39,11 @@ pub struct Resolved {
 }
 
 pub type Locations = HashMap<String, Resolved>;
+
+/// The display name of a location: its `name`, or the id with spaces ("android avd").
+pub fn display_name(d: &LocationDef) -> String {
+    d.name.clone().unwrap_or_else(|| d.id.replace('_', " "))
+}
 
 fn candidate_from_env(spec: &str, env: &HashMap<String, String>) -> Option<(String, PathBuf)> {
     let (var, sub) = spec.split_once('/').map_or((spec, ""), |(v, s)| (v, s));
@@ -77,7 +86,7 @@ pub fn resolve(defs: &[LocationDef], env: &HashMap<String, String>, query: &(dyn
         }
         for (src, p) in cands {
             match safety.location_problem(&p) {
-                None => return Resolved { id: d.id.clone(), path: Some(p.canonicalize().unwrap_or(p)), source: src, skipped },
+                None => return Resolved { id: d.id.clone(), name: display_name(d), path: Some(p.canonicalize().unwrap_or(p)), source: src, skipped },
                 // A folder that simply doesn't exist yet is normal (tool installed, nothing cached); only
                 // refusals for safety are worth telling the user about.
                 Some(why) if src != "default" && why != "does not exist" => {
@@ -86,7 +95,7 @@ pub fn resolve(defs: &[LocationDef], env: &HashMap<String, String>, query: &(dyn
                 Some(_) => {}
             }
         }
-        Resolved { id: d.id.clone(), path: None, source: "not found".into(), skipped }
+        Resolved { id: d.id.clone(), name: display_name(d), path: None, source: "not found".into(), skipped }
     };
     // Tool queries can each take a moment (npm, brew): run them side by side.
     std::thread::scope(|s| {
@@ -120,7 +129,7 @@ pub fn expand(pattern: &str, locs: &Locations, home: &Path) -> Option<String> {
 /// Locations resolved to their defaults only (tests, and the rules self-check).
 pub fn defaults(defs: &[LocationDef], home: &Path) -> Locations {
     defs.iter()
-        .map(|d| (d.id.clone(), Resolved { id: d.id.clone(), path: d.default.as_deref().map(|p| tilde(p, home)), source: "default".into(), skipped: vec![] }))
+        .map(|d| (d.id.clone(), Resolved { id: d.id.clone(), name: display_name(d), path: d.default.as_deref().map(|p| tilde(p, home)), source: "default".into(), skipped: vec![] }))
         .collect()
 }
 
@@ -140,7 +149,7 @@ mod tests {
     }
 
     fn def(id: &str, env: &[&str], cmd: Option<&[&str]>, default: &str) -> LocationDef {
-        LocationDef { id: id.into(), env: env.iter().map(|s| s.to_string()).collect(), cmd: cmd.map(|c| c.iter().map(|s| s.to_string()).collect()), default: Some(default.into()) }
+        LocationDef { id: id.into(), name: None, env: env.iter().map(|s| s.to_string()).collect(), cmd: cmd.map(|c| c.iter().map(|s| s.to_string()).collect()), default: Some(default.into()) }
     }
 
     fn env(pairs: &[(&str, String)]) -> HashMap<String, String> {
@@ -203,8 +212,8 @@ mod tests {
         let (_t, s) = home();
         let h = s.home().to_path_buf();
         let mut locs = Locations::new();
-        locs.insert("g".into(), Resolved { id: "g".into(), path: Some(h.join("we[ir]d")), source: "default".into(), skipped: vec![] });
-        locs.insert("missing".into(), Resolved { id: "missing".into(), path: None, source: "not found".into(), skipped: vec![] });
+        locs.insert("g".into(), Resolved { id: "g".into(), name: "g".into(), path: Some(h.join("we[ir]d")), source: "default".into(), skipped: vec![] });
+        locs.insert("missing".into(), Resolved { id: "missing".into(), name: "missing".into(), path: None, source: "not found".into(), skipped: vec![] });
         assert_eq!(tokens("{g}/caches/*"), vec!["g"]);
         let e = expand("{g}/caches/*", &locs, &h).unwrap();
         assert!(e.ends_with("we[[]ir[]]d/caches/*"), "{e}");

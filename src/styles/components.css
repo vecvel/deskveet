@@ -77,6 +77,7 @@ canvas.spark { width: 100%; height: 44px; display: block; margin-top: 8px; }
 
 /* toolbar + table */
 .toolbar { display: flex; gap: var(--sp-3); align-items: center; flex-wrap: wrap; }
+.toolbar .sp { flex: 1; }
 .search { flex: 1; min-width: 180px; height: var(--h-control); background: var(--panel); border: 1px solid var(--border); border-radius: var(--r-control); padding: 0 14px; user-select: text; -webkit-user-select: text; }
 .search::placeholder { color: var(--text-2); }
 .seg { display: inline-flex; align-items: stretch; height: var(--h-control); background: var(--panel); border: 1px solid var(--border); border-radius: var(--r-control); padding: 3px; }
@@ -170,11 +171,15 @@ dialog .btns { display: flex; justify-content: flex-end; gap: 8px; }
 .rule-head { display: flex; align-items: center; gap: 10px; padding: 8px 16px; }
 .rule-toggle { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; background: none; border: 0; cursor: pointer; text-align: left; padding: 2px 0; }
 .rule-toggle .nm { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.chev { color: var(--text-2); width: 10px; }
+/* disclosure chevron (dom.ts chev()): points right, turns down when its button is expanded */
+.chev { color: var(--text-3); width: var(--chev-w); height: 20px; flex: none; display: inline-flex; align-items: center; justify-content: center; }
+.chev svg { transition: transform .15s ease; }
+[aria-expanded="true"] > .chev svg { transform: rotate(90deg); }
 .rule-head .cnt { white-space: nowrap; }
 .rule-head .sz, .item .sz, .pv-row .sz { font-weight: 600; min-width: 74px; text-align: right; white-space: nowrap; }
 input[type="checkbox"] { accent-color: var(--accent); width: 15px; height: 15px; flex: none; cursor: pointer; }
-.rule-body { padding: 4px 16px 12px 42px; }
+/* lines up with the rule name: row padding + checkbox + gap + chevron + gap */
+.rule-body { padding: 4px 16px 12px calc(16px + 15px + 10px + var(--chev-w) + 8px); }
 .facts { color: var(--text-2); display: grid; gap: var(--sp-1); margin-bottom: var(--sp-4); user-select: text; -webkit-user-select: text; }
 .facts b { color: var(--text); font-weight: 600; }
 .items { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
@@ -266,8 +271,10 @@ input.num::-webkit-inner-spin-button, input.num::-webkit-outer-spin-button { -we
 .app-ico.none { display: inline-flex; align-items: center; justify-content: center; background: var(--panel2); color: var(--text-2); font-weight: 600; }
 
 /* settings: rules */
-.disclose { display: flex; align-items: center; gap: var(--sp-2); width: 100%; background: none; border: 0; padding: 0; cursor: pointer; text-align: left; }
-.disclose .chev { color: var(--text-3); }
+.disclose { display: flex; align-items: flex-start; gap: var(--sp-2); width: 100%; background: none; border: 0; padding: 0; cursor: pointer; text-align: left; }
+.disclose .nm { line-height: 20px; }
+/* what a disclosure card reveals lines up with its title, not with the chevron */
+.card > .disclose ~ * { margin-left: calc(var(--chev-w) + var(--sp-2)); }
 .rules-cat { margin-top: var(--sp-4); }
 .rules-cat h4 { font-size: var(--fs-sm); color: var(--text-3); font-weight: 600; margin-bottom: var(--sp-1); }
 .rule-row { display: flex; align-items: flex-start; gap: var(--sp-3); padding: var(--sp-2) 0; border-top: 1px solid var(--border); }

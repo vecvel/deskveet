@@ -40,7 +40,8 @@
   /* space (4px grid), shape, layout */
   --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px; --sp-5: 24px;
   --r: 14px; --r-control: 999px; --r-sm: 8px;
-  --r-field: 12px;                         /* multi-line fields, which can't be pills */
+  --r-field: 12px;
+  --chev-w: 16px;                          /* the disclosure chevron box */                         /* multi-line fields, which can't be pills */
   /* every single-line control (buttons, search, segmented, text fields, selects) is one of two heights */
   --h-control: 34px; --h-control-sm: 26px;
   --side-w: 188px;

@@ -1,5 +1,5 @@
 import { api, CItem, RuleResult, Risk } from "../api";
-import { h, toast } from "../dom";
+import { chev, h, toast } from "../dom";
 import { ago, bytes, date, num, tilde } from "../fmt";
 import { fda, FDA_HELP } from "../fda";
 import { openPreview } from "../preview";
@@ -105,7 +105,7 @@ export function cleanupView(): View {
     const head = h("div", { class: "rule-head" },
       cb,
       h("button", { class: "rule-toggle", "aria-expanded": String(open), onclick: () => { open ? expanded.delete(r.rule.id) : expanded.add(r.rule.id); store.set("cl.open", [...expanded]); render(); } },
-        h("span", { class: "chev", text: open ? "▾" : "▸" }),
+        chev(),
         h("span", { class: "nm", text: r.rule.name }),
         h("span", { class: `pill ${riskCls(r.rule.risk)}`, text: r.rule.risk }),
         r.rule.opt_in ? h("span", { class: "pill", text: "opt-in" }) : null,

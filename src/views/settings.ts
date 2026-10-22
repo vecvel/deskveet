@@ -2,8 +2,7 @@ import { api, About, Background, Draft, Location, RuleInfo, RuleResult, RuleStat
 import { openPreview } from "../preview";
 import { emptyDraft, openRuleEditor } from "../rule_editor";
 import { openTrack, scheduleText, sparkline, trackSummary } from "../track";
-import { confirmDialog } from "../dom";
-import { h, toast } from "../dom";
+import { chev, confirmDialog, h, toast } from "../dom";
 import { bytes, tilde } from "../fmt";
 import { store } from "../store";
 import { header, View } from "./types";
@@ -119,7 +118,7 @@ export function settingsView(): View {
     const fda = rules.filter((r) => status.get(r.id)?.state === "needs_fda").length;
     const card = h("section", { class: "card" },
       h("button", { class: "disclose", "aria-expanded": String(rulesOpen), onclick: () => { rulesOpen = !rulesOpen; store.set("set.rulesOpen", rulesOpen); render(); } },
-        h("span", { class: "chev", text: rulesOpen ? "\u25be" : "\u25b8" }),
+        chev(),
         h("span", { class: "pv-main" }, h("div", { class: "nm", text: "Cleanup rules" }),
           h("div", { class: "muted small", text: rules.length
             ? `${rules.length - off.size} of ${rules.length} on \u00b7 ${here} apply on this Mac${fda ? ` \u00b7 ${fda} need Full Disk Access` : ""}. Rules that are off are skipped by scans and can't be cleaned.`
@@ -166,7 +165,7 @@ export function settingsView(): View {
   function locationsCard() {
     const card = h("section", { class: "card" },
       h("button", { class: "disclose", "aria-expanded": String(locsOpen), onclick: () => { locsOpen = !locsOpen; store.set("set.locsOpen", locsOpen); render(); } },
-        h("span", { class: "chev", text: locsOpen ? "\u25be" : "\u25b8" }),
+        chev(),
         h("span", { class: "pv-main" }, h("div", { class: "nm", text: "Tool locations" }),
           h("div", { class: "muted small", text: "Where Deskveet found each tool's folders: asked the tool, read your shell's variables, or used the default." }))));
     if (!locsOpen) return card;
@@ -175,7 +174,7 @@ export function settingsView(): View {
     for (const l of locations) {
       card.append(h("div", { class: "rule-row" },
         h("div", { class: "pv-main" },
-          h("div", { class: "nm", text: l.id.replace(/_/g, " ") }),
+          h("div", { class: "nm", text: l.name }),
           h("div", { class: "path", text: l.path ? tilde(l.path) : "Not found on this Mac" }),
           ...l.skipped.map((x) => h("div", { class: "why warnx small", text: x }))),
         h("span", { class: "tertiary small", text: l.path ? (l.source === "default" ? "default" : l.source) : "" })));

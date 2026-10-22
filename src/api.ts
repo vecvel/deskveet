@@ -59,7 +59,7 @@ export interface CItem {
   id: string; rule_id: string; label: string; path: string | null; size: number; files: number; mtime: number;
   blocked: string | null; info: string[];
 }
-export interface Location { id: string; path: string | null; source: string; skipped: string[] }
+export interface Location { id: string; name: string; path: string | null; source: string; skipped: string[] }
 export type RuleState = "ready" | "not_installed" | "nothing_found" | "location_ignored" | "needs_fda" | "on_demand";
 export interface RuleStatus { id: string; state: RuleState; note: string | null; locations: Location[]; matches: number }
 export interface RuleResult { rule: RuleInfo; locations: Location[]; available: boolean; note: string | null; items: CItem[]; total: number; running: string[] }

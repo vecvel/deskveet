@@ -1,5 +1,5 @@
 import { api, ArtifactScan, Project } from "../api";
-import { h, toast } from "../dom";
+import { chev, h, toast } from "../dom";
 import { bytes, num, tilde } from "../fmt";
 import { openPreview } from "../preview";
 import { store } from "../store";
@@ -71,7 +71,7 @@ export function artifactsView(): View {
     const row = h("div", { class: "rule" + (isOpen ? " open" : "") },
       h("div", { class: "rule-head" }, cb,
         h("button", { class: "rule-toggle", "aria-expanded": String(isOpen), onclick: () => { isOpen ? open.delete(p.path) : open.add(p.path); render(); } },
-          h("span", { class: "chev", text: isOpen ? "▾" : "▸" }),
+          chev(),
           h("span", { class: "pv-main" },
             h("span", { class: "nm", text: p.name }),
             h("span", { class: "path block", title: p.path, text: tilde(p.path) }))),

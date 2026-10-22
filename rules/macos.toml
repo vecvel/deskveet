@@ -31,107 +31,126 @@
 # Any candidate that is missing, or is home, a protected folder or a system path, is ignored.
 
 schema_version = 2
-rules_version = "2026.10.3"
+rules_version = "2026.10.4"
 
 [[location]]
 id = "derived_data"
+name = "Xcode DerivedData"
 cmd = ["defaults", "read", "com.apple.dt.Xcode", "IDECustomDerivedDataLocation"]
 default = "~/Library/Developer/Xcode/DerivedData"
 
 [[location]]
 id = "xcode_archives"
+name = "Xcode Archives"
 cmd = ["defaults", "read", "com.apple.dt.Xcode", "IDECustomDistributionArchivesLocation"]
 default = "~/Library/Developer/Xcode/Archives"
 
 [[location]]
 id = "android_sdk"
+name = "Android SDK"
 env = ["ANDROID_HOME", "ANDROID_SDK_ROOT"]
 default = "~/Library/Android/sdk"
 
 [[location]]
 id = "android_user"
+name = "Android user folder"
 env = ["ANDROID_USER_HOME", "ANDROID_SDK_HOME/.android"]
 default = "~/.android"
 
 [[location]]
 id = "android_avd"
+name = "Android virtual devices"
 env = ["ANDROID_AVD_HOME", "ANDROID_USER_HOME/avd", "ANDROID_SDK_HOME/.android/avd"]
 default = "~/.android/avd"
 
 [[location]]
 id = "gradle_home"
+name = "Gradle"
 env = ["GRADLE_USER_HOME"]
 default = "~/.gradle"
 
 [[location]]
 id = "pub_cache"
+name = "Dart and Flutter packages"
 env = ["PUB_CACHE"]
 default = "~/.pub-cache"
 
 [[location]]
 id = "npm_cache"
+name = "npm cache"
 cmd = ["npm", "config", "get", "cache"]
 env = ["npm_config_cache", "NPM_CONFIG_CACHE"]
 default = "~/.npm"
 
 [[location]]
 id = "pnpm_store"
+name = "pnpm store"
 cmd = ["pnpm", "store", "path"]
 env = ["PNPM_STORE_DIR"]
 default = "~/Library/pnpm/store"
 
 [[location]]
 id = "yarn_cache"
+name = "Yarn cache"
 cmd = ["yarn", "cache", "dir"]
 env = ["YARN_CACHE_FOLDER"]
 default = "~/Library/Caches/Yarn"
 
 [[location]]
 id = "cargo_home"
+name = "Cargo"
 env = ["CARGO_HOME"]
 default = "~/.cargo"
 
 [[location]]
 id = "go_cache"
+name = "Go build cache"
 cmd = ["go", "env", "GOCACHE"]
 env = ["GOCACHE"]
 default = "~/Library/Caches/go-build"
 
 [[location]]
 id = "pip_cache"
+name = "pip cache"
 cmd = ["python3", "-m", "pip", "cache", "dir"]
 env = ["PIP_CACHE_DIR"]
 default = "~/Library/Caches/pip"
 
 [[location]]
 id = "brew_cache"
+name = "Homebrew downloads"
 cmd = ["brew", "--cache"]
 env = ["HOMEBREW_CACHE"]
 default = "~/Library/Caches/Homebrew"
 
 [[location]]
 id = "bun_cache"
+name = "Bun cache"
 env = ["BUN_INSTALL_CACHE_DIR", "BUN_INSTALL/install/cache"]
 default = "~/.bun/install/cache"
 
 [[location]]
 id = "deno_dir"
+name = "Deno"
 env = ["DENO_DIR"]
 default = "~/Library/Caches/deno"
 
 [[location]]
 id = "maven_repo"
+name = "Maven repository"
 env = ["MAVEN_REPO_LOCAL"]
 default = "~/.m2/repository"
 
 [[location]]
 id = "conda_base"
+name = "Conda"
 cmd = ["conda", "info", "--base"]
 env = ["CONDA_PREFIX"]
 default = "~/miniconda3"
 
 [[location]]
 id = "xdg_cache"
+name = "XDG cache"
 env = ["XDG_CACHE_HOME"]
 default = "~/.cache"
 

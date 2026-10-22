@@ -24,6 +24,13 @@ export function toast(msg: string, err = false) {
 
 export const modal = { open: false };
 
+/** The disclosure chevron. It points right, and turns down when its button has aria-expanded="true". */
+export function chev(): HTMLSpanElement {
+  const s = h("span", { class: "chev", "aria-hidden": "true" });
+  s.innerHTML = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 6l6 6-6 6"/></svg>';
+  return s;
+}
+
 /** Open a `<dialog>` the page controls. `done()` closes and removes it. */
 export function openDialog(cls: string, labelId: string): { dlg: HTMLDialogElement; done: () => void } {
   const dlg = h("dialog", { class: cls, "aria-labelledby": labelId });
