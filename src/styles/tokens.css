@@ -47,6 +47,10 @@
   --side-w: 188px;
   /* the page's inset from the window edge: left, right and above the header */
   --page-pad: 22px;
+  /* the left edge the window buttons sit on (trafficLightPosition x in tauri.conf.json); the logo and the
+     sidebar icons start there too */
+  --chrome-x: 14px;
+  --side-pad: 8px;
   --dialog-max: calc(100vw - var(--side-w) - 2 * var(--sp-5));
   /* motion */
   --reveal: .5s;

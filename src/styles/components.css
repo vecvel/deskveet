@@ -1,12 +1,12 @@
 #app { display: grid; grid-template-columns: var(--side-w) 1fr; height: 100vh; }
-#side { background: var(--panel); border-right: 1px solid var(--border); display: flex; flex-direction: column; padding: 0 10px 12px; }
-.drag { height: 38px; flex: none; margin: 0 -10px; }
-.brand { display: flex; align-items: center; gap: 9px; font-size: var(--fs-lg); font-weight: 600; padding: 2px 8px 16px; color: var(--accent); letter-spacing: -.01em; }
+#side { background: var(--panel); border-right: 1px solid var(--border); display: flex; flex-direction: column; padding: 0 var(--side-pad) 12px; }
+.drag { height: 38px; flex: none; margin: 0 calc(-1 * var(--side-pad)); }
+.brand { display: flex; align-items: center; gap: 9px; font-size: var(--fs-lg); font-weight: 600; padding: 2px 8px 16px calc(var(--chrome-x) - var(--side-pad) - 26px * 4 / 32); color: var(--accent); letter-spacing: -.01em; }
 .brand span { color: var(--text); }
 #nav { display: flex; flex-direction: column; gap: 2px; flex: 1; }
 #nav button {
   display: flex; align-items: center; gap: 9px; text-align: left; border: 0; background: none; cursor: pointer;
-  padding: 8px 12px; border-radius: 10px; color: var(--text-2); font-weight: 520;
+  padding: 8px 12px 8px calc(var(--chrome-x) - var(--side-pad) - 22px / 24); border-radius: 10px; color: var(--text-2); font-weight: 520;
 }
 #nav button[aria-current="page"] { background: var(--fill-subtle); color: var(--text); }
 #nav svg { width: 22px; height: 22px; flex: none; }
@@ -249,7 +249,7 @@ input.num::-webkit-inner-spin-button, input.num::-webkit-outer-spin-button { -we
 .link.arrow::after { content: " \2192"; }
 
 /* sidebar: grouped, small sentence-case labels, outline icons; icon rail when the window is narrow */
-.nav-label { font-size: var(--fs-xs); color: var(--text-3); padding: var(--sp-3) 12px 4px; }
+.nav-label { font-size: var(--fs-xs); color: var(--text-3); padding: var(--sp-3) 12px 4px calc(var(--chrome-x) - var(--side-pad)); }
 .nav-label:first-child { padding-top: 0; }
 #nav button .lbl { flex: 1; text-align: left; }
 @media (max-width: 920px) {
