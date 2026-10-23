@@ -25,7 +25,7 @@
 .t-apps { --tile: var(--tab-apps); --tile-ink: var(--tab-apps-ink); --tile-solid: var(--tab-apps-solid); }
 #nav kbd { margin-left: auto; font: var(--fs-xs) var(--mono); color: var(--text-3); }
 
-#main { overflow: auto; padding: 0 22px 24px; outline: 0; }
+#main { overflow: auto; padding: 0 22px var(--sp-5); outline: 0; }
 .head { position: sticky; top: 0; z-index: 5; background: var(--bg); padding: 38px 0 var(--sp-4); display: flex; align-items: center; gap: var(--sp-3); }
 .head h1 { font-size: var(--fs-xl); line-height: 1.1; letter-spacing: -.015em; }
 .head .sub { color: var(--text-2); }
@@ -335,3 +335,11 @@ select { appearance: none; -webkit-appearance: none; height: var(--h-control); m
 .spark-line { width: 96px; height: 22px; }
 .spark-line polyline { fill: none; stroke: var(--accent); stroke-width: 1.5; stroke-linejoin: round; stroke-linecap: round; }
 dialog:not(.wide) .re-form { margin-bottom: var(--sp-4); }
+
+/* Storage → Duplicates */
+.dup-prog .bar { height: 6px; }
+.dup-prog .big-line { font-weight: 600; }
+.card.flush > .dup-row { align-items: center; padding-top: var(--sp-2); padding-bottom: var(--sp-2); }
+.dup-row .lock { color: var(--text-2); font-size: 12px; cursor: help; }
+/* #main pads its bottom by --sp-5, and a sticky element stops inside that padding: reach over it */
+.btns.sticky-foot { display: flex; align-items: center; gap: 8px; position: sticky; bottom: calc(-1 * var(--sp-5)); margin-bottom: calc(-1 * var(--sp-5)); padding: var(--sp-3) 0; background: var(--bg); border-top: 1px solid var(--border); }

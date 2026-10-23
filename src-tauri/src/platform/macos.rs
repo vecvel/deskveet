@@ -507,6 +507,31 @@ end run"#;
         spawn_reaped(Command::new("/usr/bin/open").arg("x-apple.systempreferences:com.apple.LoginItems-Settings.extension"))
     }
 
+    fn private_size(&self, path: &Path) -> Option<u64> {
+        use std::os::unix::ffi::OsStrExt;
+        let c = std::ffi::CString::new(path.as_os_str().as_bytes()).ok()?;
+        let mut req = libc::attrlist {
+            bitmapcount: libc::ATTR_BIT_MAP_COUNT,
+            reserved: 0,
+            commonattr: 0,
+            volattr: 0,
+            dirattr: 0,
+            fileattr: 0,
+            forkattr: libc::ATTR_CMNEXT_PRIVATESIZE,
+        };
+        // the reply is its own length (u32) followed by the size (off_t)
+        #[repr(C, packed(4))]
+        struct Reply {
+            len: u32,
+            private: libc::off_t,
+        }
+        let mut out = Reply { len: 0, private: 0 };
+        let opts = libc::FSOPT_NOFOLLOW | libc::FSOPT_ATTR_CMN_EXTENDED;
+        let r = unsafe { libc::getattrlist(c.as_ptr(), &mut req as *mut _ as *mut _, &mut out as *mut _ as *mut _, size_of::<Reply>(), opts) };
+        let private = out.private;
+        (r == 0 && out.len as usize >= size_of::<Reply>()).then(|| private.max(0) as u64)
+    }
+
     fn last_used(&self, paths: &[PathBuf]) -> Vec<Option<i64>> {
         // Spotlight's "last opened" date, 100 files per mdls call; values are separated by NUL.
         let mut out = Vec::with_capacity(paths.len());
@@ -767,6 +792,21 @@ impl ProcessInfo for Mac {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_clone_frees_nothing() {
+        let t = tempfile::tempdir().unwrap();
+        let (a, b, c) = (t.path().join("a.bin"), t.path().join("b.bin"), t.path().join("c.bin"));
+        std::fs::write(&a, vec![7u8; 1 << 20]).unwrap();
+        std::fs::write(&c, vec![7u8; 1 << 20]).unwrap(); // fs::copy would clone
+        let ok = Command::new("/bin/cp").arg("-c").arg(&a).arg(&b).status().map(|s| s.success()).unwrap_or(false);
+        let p = Mac;
+        let Some(own) = p.private_size(&a) else { return }; // not APFS
+        assert!(ok, "cp -c works on APFS");
+        assert_eq!(own, 0, "a and b share their blocks");
+        assert_eq!(p.private_size(&b), Some(0));
+        assert!(p.private_size(&c).unwrap() >= 1 << 20, "a plain copy has its own blocks");
+    }
 
     #[test]
     fn spotlight_dates_parse_to_unix_seconds() {

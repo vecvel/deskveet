@@ -38,6 +38,12 @@ export interface ScanDone { root: string; cancelled: boolean; error: string | nu
 export interface ScanStatus { home: string; running: ScanProgress | null; loaded: ScanMeta | null }
 export type RowKind = "dir" | "file" | "small_dirs" | "small_files";
 export interface Row { name: string; path: string; kind: RowKind; size: number; files: number; mtime: number }
+export interface DupProgress { root: string; files: number; read: number; to_read: number; comparing: boolean; current: string }
+export interface DupCopy { path: string; mtime: number; own: number | null; locked: string | null }
+export interface DupGroup { size: number; copies: DupCopy[] }
+export interface DupResult { root: string; min_mb: number; found_at: number; groups: DupGroup[]; more: number; more_bytes: number }
+export interface DupState { running: DupProgress | null; result: DupResult | null }
+export interface DupDone { cancelled: boolean; error: string | null }
 export interface LargeFile { path: string; name: string; size: number; mtime: number; last_used: number | null }
 export interface Children { path: string; size: number; files: number; rows: Row[] }
 
@@ -123,6 +129,11 @@ export const api = {
   scanLoadCached: (root: string) => call<ScanMeta | null>("scan_load_cached", { root }),
   scanChildren: (path: string) => call<Children>("scan_children", { path }),
   largeFiles: (path: string, minMb: number, minAgeDays: number) => call<LargeFile[]>("large_files", { path, minMb, minAgeDays }),
+  dupesState: () => call<DupState>("dupes_state"),
+  dupesStart: (path: string, minMb: number) => call<void>("dupes_start", { path, minMb }),
+  dupesCancel: () => call<void>("dupes_cancel"),
+  dupesCheck: (picks: string[]) => call<void>("dupes_check", { picks }),
+  dupesPrune: () => call<DupResult | null>("dupes_prune"),
   cleanupState: () => call<CleanupState>("cleanup_state"),
   cleanupScan: () => call<void>("cleanup_scan"),
   cleanupCancel: () => call<void>("cleanup_cancel"),

@@ -6,6 +6,7 @@ import { store } from "../store";
 import { bandedTreemap } from "../treemap";
 import { fda, FDA_HELP } from "../fda";
 import { openPreview } from "../preview";
+import { dupesPane } from "./dupes";
 import { header, View } from "./types";
 
 type SortKey = "name" | "size" | "mtime";
@@ -17,7 +18,7 @@ export function storageView(): View {
   let meta: ScanMeta | null = null;
   let cwd = store.get("st.cwd", "");
   let data: Children | null = null;
-  let mode = store.get<"list" | "map" | "large">("st.mode", "list");
+  let mode = store.get<"list" | "map" | "large" | "dupes">("st.mode", "list");
   // large files: minimum size (MB) and how long unchanged (days); kept between visits
   let lfMin = store.get<number>("st.lfMin", 500);
   let lfAge = store.get<number>("st.lfAge", 180);
@@ -38,6 +39,7 @@ export function storageView(): View {
   let io: IntersectionObserver | null = null;
 
   const scanning = () => progress !== null;
+  const dupes = dupesPane((p) => place(p), () => { staleNote = true; render(); });
   /** The scanned folder as people say it: "Home" for the home folder, otherwise its path with ~. */
   const place = (p: string) => (p === env.home ? "Home" : tilde(p));
 
@@ -328,8 +330,9 @@ export function storageView(): View {
         h("div", { class: "seg", role: "group", "aria-label": "View" },
           h("button", { text: "List", "aria-pressed": String(mode === "list"), onclick: () => { mode = "list"; store.set("st.mode", mode); render(); } }),
           h("button", { text: "Treemap", "aria-pressed": String(mode === "map"), onclick: () => { mode = "map"; store.set("st.mode", mode); render(); } }),
-          h("button", { text: "Large files", "aria-pressed": String(mode === "large"), onclick: () => { mode = "large"; store.set("st.mode", mode); render(); } }))),
-      mode === "list" ? listView(rows) : mode === "map" ? mapView(rows) : largeView());
+          h("button", { text: "Large files", "aria-pressed": String(mode === "large"), onclick: () => { mode = "large"; store.set("st.mode", mode); render(); } }),
+          h("button", { text: "Duplicates", "aria-pressed": String(mode === "dupes"), onclick: () => { mode = "dupes"; store.set("st.mode", mode); render(); } }))),
+      mode === "list" ? listView(rows) : mode === "map" ? mapView(rows) : mode === "large" ? largeView() : dupes.view(cwd, filter));
     if (f) search.focus();
   }
 

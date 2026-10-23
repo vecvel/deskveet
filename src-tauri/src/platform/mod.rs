@@ -124,6 +124,10 @@ pub trait Platform: Send + Sync {
     fn last_used(&self, paths: &[PathBuf]) -> Vec<Option<i64>> {
         vec![None; paths.len()]
     }
+    /// Bytes of a file that no other file shares (APFS clones share theirs); what removing it would free.
+    fn private_size(&self, _path: &Path) -> Option<u64> {
+        None
+    }
     /// Put the computer to sleep now.
     fn sleep_now(&self) -> io::Result<()> {
         Err(io::ErrorKind::Unsupported.into())

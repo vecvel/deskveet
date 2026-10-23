@@ -47,6 +47,8 @@ pub struct AppState {
     pub history: Arc<crate::history::History>,
     pub tracking: Arc<crate::schedule::Store>,
     pub live: Arc<crate::watch::LiveWatch>,
+    dup_run: Mutex<Option<Arc<DupRun>>>,
+    dupes: Mutex<Option<Arc<DupResult>>>,
     /// The window is on screen (live updates every few seconds instead of every 10 minutes).
     pub ui_active: AtomicBool,
 }
@@ -87,6 +89,8 @@ impl AppState {
             history: Arc::new(crate::history::History::load(platform::data_dir().join("history.json"))),
             tracking: Arc::new(crate::schedule::Store::load(platform::data_dir().join("tracking.json"))),
             live: Arc::new(Default::default()),
+            dup_run: Mutex::new(None),
+            dupes: Mutex::new(None),
             ui_active: AtomicBool::new(true),
             app_icons: Mutex::new(Default::default()),
             app_sizes: Arc::new(Default::default()),
@@ -365,6 +369,213 @@ pub fn large_files(state: State<'_, AppState>, path: String, min_mb: u64, min_ag
             last_used,
         })
         .collect())
+}
+
+// ───────────────────────────── duplicate files ─────────────────────────────
+
+/// Groups sent to the window; the rest are counted in `more`.
+const DUP_GROUPS: usize = 500;
+
+struct DupRun {
+    root: String,
+    cancel: AtomicBool,
+    n: crate::dupes::Counters,
+}
+
+#[derive(Serialize, Clone)]
+pub struct DupProgress {
+    pub root: String,
+    pub files: u64,
+    pub read: u64,
+    pub to_read: u64,
+    pub comparing: bool,
+    pub current: String,
+}
+
+#[derive(Serialize, Clone)]
+pub struct DupCopy {
+    pub path: String,
+    pub mtime: i64,
+    /// Bytes only this copy uses; removing it frees about this much (0 for an APFS clone).
+    pub own: Option<u64>,
+    /// Why this copy can not be moved, if it can not.
+    pub locked: Option<String>,
+}
+
+#[derive(Serialize, Clone)]
+pub struct DupGroup {
+    pub size: u64,
+    pub copies: Vec<DupCopy>,
+}
+
+#[derive(Serialize, Clone)]
+pub struct DupResult {
+    pub root: String,
+    pub min_mb: u64,
+    pub found_at: u64,
+    pub groups: Vec<DupGroup>,
+    /// Groups found beyond the ones listed, and the bytes their extra copies take.
+    pub more: usize,
+    pub more_bytes: u64,
+}
+
+#[derive(Serialize)]
+pub struct DupState {
+    pub running: Option<DupProgress>,
+    pub result: Option<DupResult>,
+}
+
+#[derive(Serialize, Clone)]
+struct DupDone {
+    cancelled: bool,
+    error: Option<String>,
+}
+
+fn dup_progress(r: &DupRun) -> DupProgress {
+    DupProgress {
+        root: r.root.clone(),
+        files: r.n.files.load(Relaxed),
+        read: r.n.read.load(Relaxed),
+        to_read: r.n.to_read.load(Relaxed),
+        comparing: r.n.comparing.load(Relaxed),
+        current: r.n.current.lock().map(|c| c.clone()).unwrap_or_default(),
+    }
+}
+
+#[tauri::command(async)]
+pub fn dupes_state(state: State<'_, AppState>) -> DupState {
+    DupState {
+        running: state.dup_run.lock().unwrap().as_ref().map(|r| dup_progress(r)),
+        result: state.dupes.lock().unwrap().as_ref().map(|r| (**r).clone()),
+    }
+}
+
+/// Look for identical files of at least `min_mb` below `path`. Progress arrives as `dupes-progress`, the end
+/// as `dupes-done`; the result is then read with `dupes_state`. Reads files, never changes them.
+#[tauri::command(async)]
+pub fn dupes_start(app: AppHandle, state: State<'_, AppState>, path: String, min_mb: u64) -> Result<(), String> {
+    let home = state.engine.home().to_path_buf();
+    let root = PathBuf::from(&path).canonicalize().map_err(|_| "That folder does not exist.".to_string())?;
+    if !root.is_dir() || !(root.starts_with(&home) || root.starts_with("/Volumes")) {
+        return Err("Pick a folder inside your home folder or on an external volume.".into());
+    }
+    let mut slot = state.dup_run.lock().unwrap();
+    if slot.is_some() {
+        return Err("Already looking for duplicates.".into());
+    }
+    let run = Arc::new(DupRun { root: root.to_string_lossy().into_owned(), cancel: AtomicBool::new(false), n: Default::default() });
+    *slot = Some(run.clone());
+    drop(slot);
+    std::thread::Builder::new()
+        .name("dupes".into())
+        .spawn(move || {
+            let finished = Arc::new(AtomicBool::new(false));
+            let ticker = {
+                let (app, run, finished) = (app.clone(), run.clone(), finished.clone());
+                std::thread::spawn(move || {
+                    while !finished.load(Relaxed) {
+                        let _ = app.emit("dupes-progress", dup_progress(&run));
+                        std::thread::sleep(Duration::from_millis(150));
+                    }
+                })
+            };
+            // apps' own data: copies there are the apps' business, and comparing it is slow
+            let library = home.join("Library");
+            let found = crate::dupes::find(&root, min_mb.max(1) * 1_000_000, &|d: &Path| d == library, &run.cancel, &run.n);
+            finished.store(true, Relaxed);
+            let _ = ticker.join();
+            let st = app.state::<AppState>();
+            let done = match found {
+                Some(groups) => {
+                    let plat = platform::current();
+                    let more = groups.len().saturating_sub(DUP_GROUPS);
+                    let more_bytes = groups.iter().skip(DUP_GROUPS).map(|g| g.extra()).sum();
+                    let groups = groups
+                        .into_iter()
+                        .take(DUP_GROUPS)
+                        .map(|g| DupGroup {
+                            size: g.size,
+                            copies: g
+                                .copies
+                                .into_iter()
+                                .map(|c| DupCopy {
+                                    own: plat.private_size(&c.path),
+                                    locked: st.engine.safety.check(&c.path, &crate::safety::Allowed::UserPick).err().map(|e| e.to_string()),
+                                    path: c.path.to_string_lossy().into_owned(),
+                                    mtime: c.mtime,
+                                })
+                                .collect(),
+                        })
+                        .collect();
+                    *st.dupes.lock().unwrap() = Some(Arc::new(DupResult { root: run.root.clone(), min_mb, found_at: scan::now_secs(), groups, more, more_bytes }));
+                    DupDone { cancelled: false, error: None }
+                }
+                None => DupDone { cancelled: run.cancel.load(Relaxed), error: (!run.cancel.load(Relaxed)).then(|| "The folder could not be read.".into()) },
+            };
+            *st.dup_run.lock().unwrap() = None;
+            let _ = app.emit("dupes-done", done);
+            platform::trim_memory();
+        })
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command(async)]
+pub fn dupes_cancel(state: State<'_, AppState>) {
+    if let Some(r) = state.dup_run.lock().unwrap().as_ref() {
+        r.cancel.store(true, Relaxed);
+    }
+}
+
+/// Before the preview: every pick is a copy from the last search, unchanged since, movable, and every group
+/// keeps at least one copy.
+#[tauri::command(async)]
+pub fn dupes_check(state: State<'_, AppState>, picks: Vec<String>) -> Result<(), String> {
+    let res = state.dupes.lock().unwrap().clone().ok_or("Search for duplicates again.")?;
+    check_dup_picks(&res, &picks)
+}
+
+fn check_dup_picks(res: &DupResult, picks: &[String]) -> Result<(), String> {
+    use std::os::unix::fs::MetadataExt;
+    let picked: HashSet<&str> = picks.iter().map(|p| p.as_str()).collect();
+    let mut matched = 0;
+    for g in &res.groups {
+        let mine: Vec<&DupCopy> = g.copies.iter().filter(|c| picked.contains(c.path.as_str())).collect();
+        if mine.is_empty() {
+            continue;
+        }
+        let name = Path::new(&g.copies[0].path).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        if mine.len() == g.copies.len() {
+            return Err(format!("Keep at least one copy of {name}."));
+        }
+        for c in mine {
+            if let Some(why) = &c.locked {
+                return Err(format!("{} can not be moved ({why}).", c.path));
+            }
+            let same = std::fs::symlink_metadata(&c.path).map(|m| m.is_file() && m.len() == g.size && m.mtime() == c.mtime).unwrap_or(false);
+            if !same {
+                return Err(format!("{} changed since the search. Search again.", c.path));
+            }
+            matched += 1;
+        }
+    }
+    if matched != picked.len() {
+        return Err("Some of these files are not from the last search. Search again.".into());
+    }
+    Ok(())
+}
+
+/// Drop copies that are gone (moved to the Trash) and groups left with one copy.
+#[tauri::command(async)]
+pub fn dupes_prune(state: State<'_, AppState>) -> Option<DupResult> {
+    let mut slot = state.dupes.lock().unwrap();
+    let mut res = (**slot.as_ref()?).clone();
+    for g in &mut res.groups {
+        g.copies.retain(|c| std::fs::symlink_metadata(&c.path).is_ok());
+    }
+    res.groups.retain(|g| g.copies.len() > 1);
+    *slot = Some(Arc::new(res.clone()));
+    Some(res)
 }
 
 #[tauri::command(async)]
@@ -1287,3 +1498,33 @@ pub fn background_set(app: AppHandle, state: State<'_, AppState>, menubar: Optio
     Ok(Background { menubar: menubar_on(&state), login, login_needs_approval: approval, watched_rules: state.live.watched_rules() })
 }
 
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::os::unix::fs::MetadataExt;
+
+    #[test]
+    fn duplicate_picks_keep_one_copy_and_must_be_unchanged() {
+        let t = tempfile::tempdir().unwrap();
+        let copy = |name: &str, locked: Option<&str>| {
+            let p = t.path().join(name);
+            std::fs::write(&p, b"same").unwrap();
+            let mtime = std::fs::metadata(&p).unwrap().mtime();
+            DupCopy { path: p.to_string_lossy().into_owned(), mtime, own: None, locked: locked.map(String::from) }
+        };
+        let (a, b, c) = (copy("a", None), copy("b", None), copy("c", Some("protected")));
+        let res = DupResult { root: String::new(), min_mb: 1, found_at: 0, groups: vec![DupGroup { size: 4, copies: vec![a.clone(), b.clone(), c.clone()] }], more: 0, more_bytes: 0 };
+        let p = |v: &[&DupCopy]| v.iter().map(|c| c.path.clone()).collect::<Vec<_>>();
+
+        assert!(check_dup_picks(&res, &p(&[&b])).is_ok());
+        assert!(check_dup_picks(&res, &p(&[&a, &b])).is_ok(), "the protected copy stays");
+        assert!(check_dup_picks(&res, &p(&[&c])).is_err(), "a protected copy is never moved");
+        let two = DupResult { groups: vec![DupGroup { size: 4, copies: vec![a.clone(), b.clone()] }], ..res.clone() };
+        assert!(check_dup_picks(&two, &p(&[&a, &b])).unwrap_err().starts_with("Keep at least one copy"));
+        assert!(check_dup_picks(&res, &[t.path().join("elsewhere").to_string_lossy().into_owned()]).is_err(), "not from the search");
+        std::fs::write(&b.path, b"diff").unwrap();
+        std::fs::File::options().write(true).open(&b.path).unwrap().set_modified(std::time::SystemTime::UNIX_EPOCH).unwrap();
+        assert!(check_dup_picks(&res, &p(&[&b])).unwrap_err().contains("changed since the search"));
+    }
+}

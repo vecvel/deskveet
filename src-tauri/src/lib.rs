@@ -1,6 +1,7 @@
 pub mod apps;
 pub mod cleaner;
 pub mod commands;
+pub mod dupes;
 pub mod fsutil;
 pub mod history;
 pub mod inventory;
@@ -65,6 +66,11 @@ pub fn run() {
             commands::scan_children,
             commands::scan_clear_cache,
             commands::large_files,
+            commands::dupes_state,
+            commands::dupes_start,
+            commands::dupes_cancel,
+            commands::dupes_check,
+            commands::dupes_prune,
             commands::cleanup_state,
             commands::cleanup_scan,
             commands::cleanup_cancel,
