@@ -97,8 +97,8 @@ for (const [label, ids] of GROUPS) {
   nav.append(h("div", { class: "nav-label", text: label }));
   for (const id of ids) {
     const i = TABS.findIndex((t) => t.id === id);
-    const b = h("button", { "data-id": id, title: TABS[i].label, "aria-label": TABS[i].label, onclick: () => show(id) });
-    b.innerHTML = `<svg class="tile t-${id}" viewBox="0 0 24 24" aria-hidden="true"><rect x="1" y="1" width="22" height="22" rx="6"/><g transform="translate(4.6 4.6) scale(.617)">${ICONS[id]}</g></svg><span class="lbl">${TABS[i].label}</span><kbd>⌘${i + 1}</kbd>`;
+    const b = h("button", { "data-id": id, title: `${TABS[i].label}  ⌘${i + 1}`, "aria-label": TABS[i].label, "aria-keyshortcuts": `Meta+${i + 1}`, onclick: () => show(id) });
+    b.innerHTML = `<svg class="tile t-${id}" viewBox="0 0 24 24" aria-hidden="true"><rect x="1" y="1" width="22" height="22" rx="6"/><g transform="translate(4.6 4.6) scale(.617)">${ICONS[id]}</g></svg><span class="lbl">${TABS[i].label}</span>`;
     nav.append(b);
   }
 }

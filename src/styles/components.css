@@ -23,7 +23,6 @@
 .t-processes { --tile: var(--tab-processes); --tile-ink: var(--tab-processes-ink); --tile-solid: var(--tab-processes-solid); }
 .t-settings { --tile: var(--tab-settings); --tile-ink: var(--tab-settings-ink); --tile-solid: var(--tab-settings-solid); }
 .t-apps { --tile: var(--tab-apps); --tile-ink: var(--tab-apps-ink); --tile-solid: var(--tab-apps-solid); }
-#nav kbd { margin-left: auto; font: var(--fs-xs) var(--mono); color: var(--text-3); }
 
 #main { overflow: auto; padding: 0 22px var(--sp-5); outline: 0; }
 .head { position: sticky; top: 0; z-index: 5; background: var(--bg); padding: 38px 0 var(--sp-4); display: flex; align-items: center; gap: var(--sp-3); }
@@ -255,7 +254,7 @@ input.num::-webkit-inner-spin-button, input.num::-webkit-outer-spin-button { -we
 @media (max-width: 920px) {
   #side { padding: 0 8px 12px; align-items: center; }
   .brand { padding-left: 0; padding-right: 0; }
-  .brand span, #nav kbd, #nav .lbl, .nav-label { display: none; }
+  .brand span, #nav .lbl, .nav-label { display: none; }
   #nav { align-items: center; }
   #nav button { padding: 8px 12px; }
   #nav svg { width: 26px; height: 26px; }
