@@ -6,7 +6,9 @@
 #nav { display: flex; flex-direction: column; gap: 2px; flex: 1; }
 #nav button {
   display: flex; align-items: center; gap: 9px; text-align: left; border: 0; background: none; cursor: pointer;
-  padding: 8px 12px 8px calc(var(--chrome-x) - var(--side-pad) - 22px / 24); border-radius: 10px; color: var(--text-2); font-weight: 520;
+  /* the same visible gap on every side of the icon tile (it sits 1/24 inside its 22px box), which lands the tile
+     on the window buttons' edge */
+  padding: calc(var(--chrome-x) - var(--side-pad) - 22px / 24); border-radius: calc(var(--chrome-x) - var(--side-pad) + 22px * 6 / 24); color: var(--text-2); font-weight: 520;
 }
 #nav button[aria-current="page"] { background: var(--fill-subtle); color: var(--text); }
 #nav svg { width: 22px; height: 22px; flex: none; }
