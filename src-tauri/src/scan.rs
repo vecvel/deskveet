@@ -393,6 +393,10 @@ pub struct Meta {
     pub denied_n: u64,
     pub protected_n: u64,
     pub denied: Vec<String>,
+    /// Full Disk Access was on during the scan (`None` when unknown or from an older cache). Folders blocked
+    /// with it on stay blocked: macOS keeps some app data private even then.
+    #[serde(default)]
+    pub fda: Option<bool>,
 }
 
 #[derive(Serialize)]
@@ -466,6 +470,7 @@ pub fn meta_for(root: &Path, ctx: &Ctx, tree: &Node, duration_ms: u64) -> Meta {
         denied_n: ctx.denied_n.load(Relaxed),
         protected_n: ctx.protected_n.load(Relaxed),
         denied: ctx.denied.lock().map(|d| d.clone()).unwrap_or_default(),
+        fda: None,
     }
 }
 

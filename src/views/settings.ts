@@ -221,7 +221,7 @@ export function settingsView(): View {
           h("button", { class: "btn", text: "Show in Finder", onclick: () => about && void api.reveal(about.undo_log).catch((e) => toast(String(e), true)) }))),
       h("section", { class: "card" }, h("h2", { text: "Privacy" }),
         h("p", { class: "facts" }, "Deskveet works entirely offline. It has no network code, no telemetry and no accounts, and the app\u2019s content security policy forbids every network connection. Cleanup tools you choose to run (for example brew or npm) are separate programs and behave as they always do."),
-        about ? h("p", { class: "muted small", text: `Version ${about.version}` }) : null),
+        about ? h("p", { class: "muted small", text: `Version ${about.version} · rules ${about.rules_version}` }) : null),
     );
   }
 

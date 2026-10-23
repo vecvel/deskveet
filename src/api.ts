@@ -31,7 +31,7 @@ export interface ProcList { rows: ProcRow[]; total: number }
 
 export interface ScanMeta {
   v: number; root: string; scanned_at: number; duration_ms: number; files: number; bytes: number;
-  dirs: number; denied_n: number; protected_n: number; denied: string[];
+  dirs: number; denied_n: number; protected_n: number; denied: string[]; fda: boolean | null;
 }
 export interface ScanProgress { root: string; files: number; bytes: number; dirs: number; reused: number; current: string }
 export interface ScanDone { root: string; cancelled: boolean; error: string | null; meta: ScanMeta | null }

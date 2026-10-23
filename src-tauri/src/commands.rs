@@ -272,7 +272,8 @@ pub fn scan_start(app: AppHandle, state: State<'_, AppState>, root: String, full
             let state = app.state::<AppState>();
             let done = match result {
                 Some(tree) => {
-                    let meta = scan::meta_for(&root, &ctx, &tree, t0.elapsed().as_millis() as u64);
+                    let mut meta = scan::meta_for(&root, &ctx, &tree, t0.elapsed().as_millis() as u64);
+                    meta.fda = platform::current().full_disk_access();
                     let error = scan::save_tree(&cache, &root, &meta, &tree)
                         .err()
                         .map(|e| format!("Could not save the scan cache: {e}"))
@@ -866,14 +867,15 @@ pub struct About {
 }
 
 #[tauri::command(async)]
-pub fn about(state: State<'_, AppState>) -> About {
+pub fn about(app: AppHandle, state: State<'_, AppState>) -> About {
     let cache = platform::cache_dir();
     // WebKit's own cache lives in the same folder; only our scan files are ours to size and clear.
     let cache_bytes = std::fs::read_dir(&cache)
         .map(|rd| rd.flatten().filter(|e| e.file_name().to_string_lossy().starts_with("scan-")).filter_map(|e| e.metadata().ok()).map(|m| m.len()).sum())
         .unwrap_or(0);
     About {
-        version: env!("CARGO_PKG_VERSION").into(),
+        // the bundle's version (tauri.conf.json), the same number Finder shows
+        version: app.package_info().version.to_string(),
         rules_version: state.engine.registry().rules_version.clone(),
         rules_count: state.engine.registry().rules.len(),
         cache_dir: cache.to_string_lossy().into_owned(),

@@ -303,13 +303,19 @@ export function storageView(): View {
 
   function fdaBanner() {
     if (!meta || !meta.protected_n) return null;
+    const n = meta.protected_n, folders = `${num(n)} folder${n === 1 ? "" : "s"}`;
+    if (fda.get() === "granted" && meta.fda) {
+      // scanned with Full Disk Access on: what is still blocked is app data macOS keeps private regardless
+      return h("p", { class: "muted small", title: meta.denied.map(tilde).join("\n"),
+        text: `${folders} inside other apps' private data ${n === 1 ? "is" : "are"} closed even with Full Disk Access, so ${n === 1 ? "it is" : "they are"} not counted: ${meta.denied.slice(0, 2).map(tilde).join(", ")}${meta.denied.length > 2 ? "…" : ""}` });
+    }
     if (fda.get() === "granted") {
       return h("div", { class: "banner info" },
-        h("span", { text: `Full Disk Access is on. Rescan to include the ${num(meta.protected_n)} folders macOS blocked last time.` }),
+        h("span", { text: `Full Disk Access is on. Rescan to include the ${folders} macOS blocked last time.` }),
         h("button", { class: "btn sm", text: "Rescan", onclick: () => void start(false) }));
     }
     return h("div", { class: "banner fda" },
-      h("span", { text: `macOS blocked ${num(meta.protected_n)} folders, so their size is missing from these totals. ${FDA_HELP}` }),
+      h("span", { text: `macOS blocked ${folders}, so ${n === 1 ? "its" : "their"} size is missing from these totals. ${FDA_HELP}` }),
       h("button", { class: "btn sm", text: "Open Full Disk Access settings", onclick: () => void api.openFda().catch((e) => toast(String(e), true)) }));
   }
 
