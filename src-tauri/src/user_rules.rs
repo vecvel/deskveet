@@ -2,7 +2,7 @@
 //! Rust: the UI is not trusted to have validated anything.
 
 use crate::locate::{self, Locations};
-use crate::rules::{Kind, Method, Risk, Rule, CATEGORIES};
+use crate::rules::{Kind, Method, Risk, Rule, CATEGORIES, SCHEMA_VERSION};
 use crate::safety::Safety;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -73,13 +73,13 @@ impl Draft {
 
 #[derive(Serialize, Deserialize, Default)]
 struct File {
-    #[serde(default = "two")]
+    #[serde(default = "one")]
     schema_version: u32,
     #[serde(default, rename = "rule")]
     rules: Vec<Draft>,
 }
-fn two() -> u32 {
-    2
+fn one() -> u32 {
+    SCHEMA_VERSION
 }
 
 pub fn parse(text: &str) -> Result<Vec<Draft>, String> {
@@ -92,7 +92,7 @@ pub fn load(path: &Path) -> Vec<Draft> {
 }
 
 pub fn to_toml(drafts: &[Draft]) -> String {
-    let body = toml::to_string(&File { schema_version: 2, rules: drafts.to_vec() }).unwrap_or_default();
+    let body = toml::to_string(&File { schema_version: SCHEMA_VERSION, rules: drafts.to_vec() }).unwrap_or_default();
     format!("# Deskveet custom rules. Items they match always move to the Trash.\n{body}")
 }
 
@@ -253,7 +253,7 @@ mod tests {
         let text = to_toml(&[a.clone()]);
         assert_eq!(parse(&text).unwrap(), vec![a]);
         // a file that tries to sneak in a tool command is read as a plain Trash rule
-        let evil = "schema_version = 2\n[[rule]]\nname = \"x\"\npaths = [\"~/dev/cache/*\"]\nmethod = \"tool\"\ntool = [\"rm\", \"-rf\", \"/\"]\n";
+        let evil = "schema_version = 1\n[[rule]]\nname = \"x\"\npaths = [\"~/dev/cache/*\"]\nmethod = \"tool\"\ntool = [\"rm\", \"-rf\", \"/\"]\n";
         let parsed = parse(evil).unwrap();
         assert_eq!(parsed[0].to_rule().method, Method::Trash);
         assert!(parse("not toml at all [[[").is_err());

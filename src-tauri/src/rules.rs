@@ -3,8 +3,8 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
-/// Highest schema this build reads. v2 adds `[[location]]` and `{location}` tokens in paths.
-pub const SCHEMA_VERSION: u32 = 2;
+/// The rules schema this build reads, including `[[location]]` and `{location}` tokens in paths.
+pub const SCHEMA_VERSION: u32 = 1;
 pub const CATEGORIES: &[&str] = &["Developer", "Browsers", "App caches", "System", "Package managers", "Project build artifacts", "Custom"];
 
 #[derive(Deserialize, Serialize, Clone, Copy, PartialEq, Eq, Debug)]
@@ -103,8 +103,8 @@ impl Registry {
     }
 
     pub fn validate(&self) -> Result<(), String> {
-        if !(1..=SCHEMA_VERSION).contains(&self.schema_version) {
-            return Err(format!("unsupported rules schema {} (this build understands 1 to {SCHEMA_VERSION})", self.schema_version));
+        if self.schema_version != SCHEMA_VERSION {
+            return Err(format!("unsupported rules schema {} (this build understands {SCHEMA_VERSION})", self.schema_version));
         }
         let mut loc_ids = HashSet::new();
         for l in &self.locations {
@@ -248,8 +248,8 @@ mod tests {
     }
 
     #[test]
-    fn schema_two_locations_are_validated() {
-        let doc = |loc: &str, path: &str| format!("schema_version = 2\nrules_version = \"x\"\n{loc}\n[[rule]]\nid = \"a.b\"\nname = \"A\"\ncategory = \"System\"\npaths = [\"{path}\"]\nrisk = \"safe\"\ndescription = \"Deletes the thing for testing.\"\nregenerates = \"yes\"\nmethod = \"trash\"\n");
+    fn locations_are_validated() {
+        let doc = |loc: &str, path: &str| format!("schema_version = 1\nrules_version = \"x\"\n{loc}\n[[rule]]\nid = \"a.b\"\nname = \"A\"\ncategory = \"System\"\npaths = [\"{path}\"]\nrisk = \"safe\"\ndescription = \"Deletes the thing for testing.\"\nregenerates = \"yes\"\nmethod = \"trash\"\n");
         let ok_loc = "[[location]]\nid = \"gradle_home\"\nenv = [\"GRADLE_USER_HOME\"]\ndefault = \"~/.gradle\"";
         assert!(Registry::parse(&doc(ok_loc, "{gradle_home}/caches/*")).is_ok());
         assert!(Registry::parse(&doc(ok_loc, "caches/{gradle_home}")).is_err(), "token must start the path");
@@ -257,7 +257,7 @@ mod tests {
         assert!(Registry::parse(&doc("[[location]]\nid = \"x\"\ndefault = \"relative\"", "~/x")).is_err());
         assert!(Registry::parse(&doc("[[location]]\nid = \"x\"", "~/x")).is_err(), "needs a source");
         let reg = Registry::macos().unwrap();
-        assert_eq!(reg.schema_version, 2);
+        assert_eq!(reg.schema_version, 1);
         assert!(reg.locations.iter().any(|l| l.id == "android_sdk"));
     }
 }

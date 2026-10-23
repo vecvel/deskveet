@@ -25,13 +25,13 @@
 #   stale_days      default age for artifact / project rules
 #   min_age_days    path rules: only items unchanged for this many days
 #
-# Locations (schema 2): folders tools let users move. A rule path may start with `{id}`.
+# Locations: folders tools let users move. A rule path may start with `{id}`.
 #   env      variables to try in order; "VAR/sub" means $VAR joined with sub
 #   cmd      a read-only command whose first line of output is the folder (tried first)
 #   default  used when nothing else gives a usable folder
 # Any candidate that is missing, or is home, a protected folder or a system path, is ignored.
 
-schema_version = 2
+schema_version = 1
 rules_version = "2026.10.5"
 
 [[location]]
