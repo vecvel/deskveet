@@ -115,6 +115,7 @@ export function appsView(): View {
       tabs = h("div", { class: "seg", role: "group", "aria-label": "Show" }, ...TABS.map(([t, label]) => h("button", { text: label, onclick: () => showTab(t) })));
       const head = header("Apps", "", tabs);
       head.querySelector(".sub")!.replaceWith(sub);
+      sub.setAttribute("data-tauri-drag-region", "");
       search = h("input", { class: "search", type: "search", placeholder: "Filter apps   \u2318F", "aria-label": "Filter apps", value: query });
       search.addEventListener("input", () => { query = search.value; if (tab === "running") paint(); else panes[tab].filter(query); });
       bulk = h("div", { class: "row gap-2" });

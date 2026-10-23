@@ -204,6 +204,7 @@ export function cleanupView(): View {
       sub = h("span", { class: "sub" });
       const head = header("Cleanup");
       head.querySelector(".sub")!.replaceWith(sub);
+      sub.setAttribute("data-tauri-drag-region", "");
       const seg = h("div", { class: "seg", role: "group", "aria-label": "What to clean" });
       segBtns.length = 0;
       for (const [t, label] of [["caches", "Caches & tools"], ["artifacts", "Project artifacts"]] as const) {

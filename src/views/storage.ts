@@ -350,6 +350,7 @@ export function storageView(): View {
       sub = h("span", { class: "sub" });
       const head = header("Storage");
       head.querySelector(".sub")!.replaceWith(sub);
+      sub.setAttribute("data-tauri-drag-region", "");
       head.append(
         h("button", { class: "btn", text: "Choose folder…", onclick: () => void choose() }),
         h("button", { class: "btn primary", text: "Rescan", title: "⌘R, hold ⇧ for a full re-scan", onclick: (e: MouseEvent) => void start(e.shiftKey) }));

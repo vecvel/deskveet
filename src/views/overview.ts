@@ -112,6 +112,7 @@ export function overviewView(go: (id: string) => void): View {
       sub = h("span", { class: "sub" });
       const head = header("Overview");
       head.querySelector(".sub")!.replaceWith(sub);
+      sub.setAttribute("data-tauri-drag-region", "");
       disksBox = h("div");
       memBig = h("div", { class: "big", text: "…" });
       memBar = h("div", { class: "bar thick" });
