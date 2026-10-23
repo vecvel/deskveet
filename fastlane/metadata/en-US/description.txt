@@ -3,13 +3,19 @@ Deskveet shows where your disk space went and cleans what is safe to clean, with
 Most full Macs are full of things nobody chose to keep: Xcode build data, old simulators, Gradle, npm and Cargo caches, browser caches, logs and downloads that tools leave behind. Deskveet knows where these live, measures them, and tells you what each one is before anything is touched.
 
 EVERY RULE EXPLAINS ITSELF
-56 built-in rules cover developer tools, package managers, browsers and app caches. Each one says what happens if you delete its items and how they come back, so you can decide with the facts in front of you.
+58 built-in rules cover developer tools, package managers, browsers and app caches. Each one says what happens if you delete its items and how they come back, so you can decide with the facts in front of you.
 
 YOU SEE IT FIRST
 Nothing is cleaned until you have seen the list and confirmed it. Items go to the Trash, so you can put them back, and an undo log keeps track of what moved where. Running browsers, booted simulators and open files are left alone.
 
 SEE WHERE YOUR SPACE WENT
 A fast parallel scan of any folder, with sizes per folder and a treemap you can scroll through so even small folders get a label. Reveal in Finder, open, copy the path, Quick Look or move to the Trash from any row.
+
+LARGE FILES AND DUPLICATES
+Find files over a size you pick that have not changed in months, and files with identical contents anywhere in a folder. Duplicates are compared by content, and the last copy of a file is never offered.
+
+UNINSTALL APPS PROPERLY
+Remove an app together with its settings, caches and containers, find what apps you already deleted left behind, and see what starts with your Mac.
 
 YOUR OWN RULES
 Add a rule for anything you clear out by hand, such as old disk images in Downloads, with a live preview of what it matches. Custom rules always move items to the Trash.
@@ -18,7 +24,7 @@ TRACKING AND SCHEDULES
 Size history per rule, an alert when something grows past a size you pick or the disk gets low, and optional daily or weekly cleaning of the safe rules.
 
 YOUR MAC AT A GLANCE
-Disks, memory and memory pressure, CPU per core and the busiest processes, plus the running apps with their memory and storage and a quick way to quit them.
+Disks, memory and memory pressure, CPU per core and the busiest processes, plus the running apps with their memory and storage and a quick way to quit them. From the menu bar you can empty the Trash, quit all apps, keep the Mac awake, eject disks, and sleep, restart or shut down.
 
 SMALL AND PRIVATE
 The app is about 7 MB and uses around 30 MB of memory with its window closed. It has no network code, no analytics and no accounts. Nothing leaves your Mac.

@@ -1,6 +1,6 @@
 [package]
 name = "deskveet"
-version = "1.0.0"
+version = "1.1.0"
 description = "Light, fast, privacy-first disk & system cleanup"
 edition = "2021"
 rust-version = "1.85"

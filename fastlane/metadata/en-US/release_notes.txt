@@ -1,1 +1,5 @@
-First release.
+Uninstall apps together with their settings and caches, and find what deleted apps left behind.
+See what starts with your Mac.
+Find large files you have not touched in months, and duplicate files by their contents.
+Menu bar: empty the Trash, quit all apps (keeping the ones you pick), keep the Mac awake, eject disks, lock, sleep, restart and shut down.
+Two new cleanup rules: old installers in Downloads and Time Machine local snapshots.

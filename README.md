@@ -43,7 +43,10 @@ starts in well under a second.
 - **Storage.** A fast parallel scan of any folder, sizes per folder, drill down, and a treemap you can scroll
   through so even the small folders get a label. Every item can be revealed in Finder, opened, copied, previewed
   with Quick Look or moved to the Trash.
-- **Cleanup.** 56 built-in rules in [`rules/macos.toml`](rules/macos.toml). Each one explains what happens if you
+- **Large and duplicate files.** Files over a size you pick that have not changed for months, and files with
+  identical contents anywhere below a folder. Duplicates are compared by content, copies that already share space
+  on disk (APFS clones) are pointed out, and the last copy of a file is never offered.
+- **Cleanup.** 58 built-in rules in [`rules/macos.toml`](rules/macos.toml). Each one explains what happens if you
   delete its items and how they come back. You always see a preview first, then confirm. There is a dry run, an
   undo log and a Restore button.
 - **Custom rules.** Add your own (for example `~/Downloads/*.dmg`) with a live preview of what they match.
@@ -51,9 +54,14 @@ starts in well under a second.
 - **Tracking.** Size history per rule, an alert when something grows past a size you pick or the disk gets
   low, and optional daily or weekly cleaning of the safe rules.
 - **Menu bar mode.** Free space, memory pressure, the next scheduled clean and "Clean safe caches now" from the
-  menu bar, with no Dock icon and the window closed.
+  menu bar, with no Dock icon and the window closed. The same menu empties the Trash, quits the heaviest app or
+  all apps (you pick any to keep open), keeps the Mac awake, ejects disks, and locks, sleeps, restarts or shuts
+  down.
 - **Apps and processes.** The running apps with their memory, CPU and storage, and a process list with Quit and
   Force Quit. System processes and Finder are never offered.
+- **Uninstall, leftovers and startup items.** Remove an app together with its settings, caches and containers,
+  find the data that apps you already deleted left in your Library, and see what starts with your Mac. Apple's
+  own apps and data are never listed for removal.
 - **Project artifacts.** `node_modules`, `target`, `build`, `.dart_tool`, `.gradle` and friends below folders you
   choose, grouped by project, with the idle ones easy to select.
 
@@ -62,7 +70,8 @@ starts in well under a second.
 Nothing is touched unless it passes two checks on its real path, with symlinks resolved.
 
 1. **It was asked for.** Either a rule matched it, or you picked it yourself (and then it always goes to the
-   Trash).
+   Trash). An app you uninstall can be picked from Applications, but never the folder itself or anything inside
+   an app.
 2. **It is not protected.** The blocklist always wins: `/`, `/System`, `/usr`, `/Library`, your home folder,
    the roots of Desktop, Documents, Pictures, Movies and Music, iCloud Drive, the Photos and Music libraries,
    every `.git` folder, keychains, `~/.ssh`, `~/.gnupg`, Mail, Messages and Safari data.
