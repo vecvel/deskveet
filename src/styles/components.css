@@ -259,7 +259,8 @@ input.num::-webkit-inner-spin-button, input.num::-webkit-outer-spin-button { -we
   .brand { padding-left: 0; padding-right: 0; }
   .brand span, #nav .lbl, .nav-label { display: none; }
   #nav { align-items: center; }
-  #nav button { padding: 8px 12px; }
+  /* the same visible gap around the larger tile as in the full sidebar */
+  #nav button { padding: calc(var(--chrome-x) - var(--side-pad) - 26px / 24); }
   #nav svg { width: 26px; height: 26px; }
 }
 

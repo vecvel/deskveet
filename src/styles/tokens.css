@@ -94,4 +94,6 @@
 /* medium window: the sidebar becomes an icon rail */
 /* ::backdrop doesn't inherit from the page on older WebKit, so it gets its own copy of what it uses */
 ::backdrop { --side-w: 188px; --scrim: rgba(20, 18, 15, .55); }
-@media (max-width: 920px) { :root, ::backdrop { --side-w: 80px; } }
+/* collapsed: the window buttons (60px from the close button's left edge to the zoom button's right edge) get
+   the same space on their right as on their left, up to the sidebar's 1px border */
+@media (max-width: 920px) { :root, ::backdrop { --side-w: calc(2 * var(--chrome-x) + 60px + 1px); } }
