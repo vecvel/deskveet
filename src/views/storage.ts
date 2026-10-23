@@ -17,7 +17,11 @@ export function storageView(): View {
   let meta: ScanMeta | null = null;
   let cwd = store.get("st.cwd", "");
   let data: Children | null = null;
-  let mode = store.get<"list" | "map">("st.mode", "list");
+  let mode = store.get<"list" | "map" | "large">("st.mode", "list");
+  // large files: minimum size (MB) and how long unchanged (days); kept between visits
+  let lfMin = store.get<number>("st.lfMin", 500);
+  let lfAge = store.get<number>("st.lfAge", 180);
+  let lfSeq = 0;
   let sortKey = store.get<SortKey>("st.sort", "size");
   let sortDir = store.get<1 | -1>("st.dir", -1);
   let filter = "";
@@ -213,6 +217,49 @@ export function storageView(): View {
     return wrap;
   }
 
+  /** Files over a size that have not changed for a while, anywhere below the current folder. */
+  function largeView() {
+    const box = h("div", { class: "stack" });
+    const seg = (label: string, options: [number, string][], value: number, set: (v: number) => void) =>
+      h("div", { class: "row gap-2" }, h("span", { class: "muted", text: label }),
+        h("div", { class: "seg", role: "group", "aria-label": label }, ...options.map(([v, t]) =>
+          h("button", { text: t, "aria-pressed": String(v === value), onclick: () => { set(v); render(); } }))));
+    const filters = h("div", { class: "toolbar" },
+      seg("At least", [[100, "100 MB"], [500, "500 MB"], [1000, "1 GB"]], lfMin, (v) => { lfMin = v; store.set("st.lfMin", v); }),
+      seg("Unchanged for", [[0, "Any time"], [90, "3 months"], [180, "6 months"], [365, "1 year"]], lfAge, (v) => { lfAge = v; store.set("st.lfAge", v); }));
+    const body = h("tbody");
+    body.append(h("tr", {}, h("td", { colspan: 5, class: "empty", text: "Looking through the scan\u2026" })));
+    box.append(filters, h("div", { class: "tbl-wrap" }, h("table", { class: "tbl lf" },
+      h("colgroup", {}, h("col"), h("col"), h("col"), h("col"), h("col")),
+      h("thead", {}, h("tr", {}, h("th", { text: "File" }), h("th", { class: "r", text: "Size" }), h("th", { class: "r", text: "Modified" }), h("th", { class: "r", text: "Last opened" }), h("th", {}))), body)));
+    const my = ++lfSeq;
+    api.largeFiles(cwd, lfMin, lfAge).then((files) => {
+      if (my !== lfSeq) return;
+      if (!files.length) {
+        body.replaceChildren(h("tr", {}, h("td", { colspan: 5, class: "empty", text: `No files of ${lfMin >= 1000 ? `${lfMin / 1000} GB` : `${lfMin} MB`} or more${lfAge ? " left unchanged that long" : ""} in ${place(cwd)}.` })));
+        return;
+      }
+      body.replaceChildren(...files.map((f) => {
+        const b = (icon: string, label: string, fn: () => void) => {
+          const el = h("button", { class: "ibtn", title: label, "aria-label": label, onclick: fn });
+          el.innerHTML = icon;
+          return el;
+        };
+        return h("tr", {},
+          h("td", {}, h("div", { class: "row gap-2" }, ico(icons.file), h("span", { class: "nm", text: f.name, title: f.name })),
+            h("div", { class: "path", title: f.path, text: tilde(f.path) })),
+          h("td", { class: "r sz", text: bytes(f.size) }),
+          h("td", { class: "r muted", text: date(f.mtime) }),
+          h("td", { class: "r muted", text: f.last_used ? date(f.last_used) : "Not known" }),
+          h("td", { class: "act" },
+            b(icons.reveal, "Reveal in Finder", () => act(api.reveal, f.path)),
+            b(icons.look, "Quick Look", () => act(api.quickLook, f.path)),
+            b(icons.trash, "Move to Trash\u2026", () => void openPreview({ picks: [f.path], dryRun: false, onCleaned: () => { staleNote = true; render(); toast("Moved to the Trash. Rescan to update the sizes."); } }))));
+      }));
+    }, (e) => { if (my === lfSeq) body.replaceChildren(h("tr", {}, h("td", { colspan: 5, class: "empty", text: String(e) }))); });
+    return box;
+  }
+
   const ico = (svg: string) => { const s = document.createElement("span"); s.className = "ico"; s.innerHTML = svg; return s; };
 
   async function go(path: string) { await load(path); filter = ""; render(); }
@@ -280,8 +327,9 @@ export function storageView(): View {
       h("div", { class: "toolbar" }, search,
         h("div", { class: "seg", role: "group", "aria-label": "View" },
           h("button", { text: "List", "aria-pressed": String(mode === "list"), onclick: () => { mode = "list"; store.set("st.mode", mode); render(); } }),
-          h("button", { text: "Treemap", "aria-pressed": String(mode === "map"), onclick: () => { mode = "map"; store.set("st.mode", mode); render(); } }))),
-      mode === "list" ? listView(rows) : mapView(rows));
+          h("button", { text: "Treemap", "aria-pressed": String(mode === "map"), onclick: () => { mode = "map"; store.set("st.mode", mode); render(); } }),
+          h("button", { text: "Large files", "aria-pressed": String(mode === "large"), onclick: () => { mode = "large"; store.set("st.mode", mode); render(); } }))),
+      mode === "list" ? listView(rows) : mode === "map" ? mapView(rows) : largeView());
     if (f) search.focus();
   }
 

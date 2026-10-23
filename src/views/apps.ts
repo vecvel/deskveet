@@ -2,6 +2,10 @@ import { api, AppRow } from "../api";
 import { confirmDialog, h, modal, toast } from "../dom";
 import { bytes, num, pct, ram, tilde } from "../fmt";
 import { header, View } from "./types";
+import { installedPane, leftoversPane, Pane, startupPane } from "./apps_more";
+import { store } from "../store";
+
+type Tab = "running" | "installed" | "leftovers" | "startup";
 
 type Key = "name" | "mem" | "cpu" | "disk";
 
@@ -85,14 +89,34 @@ export function appsView(): View {
     paintBulk();
   }
 
+  // the other tabs; built once, loaded each time they are shown
+  let tab = store.get<Tab>("ap.tab", "running");
+  const panes: Record<Exclude<Tab, "running">, Pane> = { installed: installedPane(), leftovers: leftoversPane(), startup: startupPane() };
+  let runningBox!: HTMLElement, tabs!: HTMLElement;
+  const TABS: [Tab, string][] = [["running", "Running"], ["installed", "Installed"], ["leftovers", "Leftovers"], ["startup", "Startup"]];
+
+  function showTab(t: Tab) {
+    tab = t;
+    store.set("ap.tab", t);
+    tabs.querySelectorAll("button").forEach((b, i) => b.setAttribute("aria-pressed", String(TABS[i][0] === t)));
+    runningBox.hidden = t !== "running";
+    bulk.hidden = t !== "running";
+    for (const [k, p] of Object.entries(panes)) p.el.hidden = k !== t;
+    search.placeholder = t === "startup" ? "Filter startup items   \u2318F" : "Filter apps   \u2318F";
+    sub.textContent = t === "running" ? sub.textContent : "";
+    if (t === "running") void view.tick!();
+    else { const p = panes[t]; p.filter(query); void p.load().catch((e) => toast(String(e), true)); }
+  }
+
   const view: View = {
     interval: 2000,
     mount(root) {
       sub = h("span", { class: "sub" });
-      const head = header("Apps");
+      tabs = h("div", { class: "seg", role: "group", "aria-label": "Show" }, ...TABS.map(([t, label]) => h("button", { text: label, onclick: () => showTab(t) })));
+      const head = header("Apps", "", tabs);
       head.querySelector(".sub")!.replaceWith(sub);
       search = h("input", { class: "search", type: "search", placeholder: "Filter apps   \u2318F", "aria-label": "Filter apps", value: query });
-      search.addEventListener("input", () => { query = search.value; paint(); });
+      search.addEventListener("input", () => { query = search.value; if (tab === "running") paint(); else panes[tab].filter(query); });
       bulk = h("div", { class: "row gap-2" });
       const th = (k: Key, label: string, right = false) => (ths[k] = h("th", { class: right ? "r" : "", text: label, onclick: () => {
         if (key === k) dir = (dir * -1) as 1 | -1; else { key = k; dir = k === "name" ? 1 : -1; }
@@ -100,16 +124,19 @@ export function appsView(): View {
       } }));
       ths = {};
       body = h("tbody");
+      runningBox = h("div", { class: "tbl-wrap" }, h("table", { class: "tbl ap" },
+        h("colgroup", {}, h("col"), h("col"), h("col"), h("col"), h("col"), h("col")),
+        h("thead", {}, h("tr", {}, h("th", {}), th("name", "App"), th("mem", "Memory", true), th("cpu", "CPU", true), th("disk", "Storage", true), h("th", {}))),
+        body));
       root.append(head, h("div", { class: "stack" },
         h("div", { class: "toolbar" }, search, bulk),
-        h("div", { class: "tbl-wrap" }, h("table", { class: "tbl ap" },
-          h("colgroup", {}, h("col"), h("col"), h("col"), h("col"), h("col"), h("col")),
-          h("thead", {}, h("tr", {}, h("th", {}), th("name", "App"), th("mem", "Memory", true), th("cpu", "CPU", true), th("disk", "Storage", true), h("th", {}))),
-          body))));
+        runningBox, panes.installed.el, panes.leftovers.el, panes.startup.el));
       paint();
+      showTab(tab);
     },
     async tick() {
       if (modal.open) return;
+      if (tab !== "running") { await panes[tab].tick?.(); return; }
       rows = await api.appsList();
       paint();
     },

@@ -38,6 +38,7 @@ export interface ScanDone { root: string; cancelled: boolean; error: string | nu
 export interface ScanStatus { home: string; running: ScanProgress | null; loaded: ScanMeta | null }
 export type RowKind = "dir" | "file" | "small_dirs" | "small_files";
 export interface Row { name: string; path: string; kind: RowKind; size: number; files: number; mtime: number }
+export interface LargeFile { path: string; name: string; size: number; mtime: number; last_used: number | null }
 export interface Children { path: string; size: number; files: number; rows: Row[] }
 
 export type Risk = "safe" | "review" | "caution";
@@ -52,7 +53,7 @@ export interface Point { t: number; b: number }
 export interface Schedule { every: "daily" | "weekly"; hour: number; weekday: number; review_ok: boolean; created?: number }
 export interface TrackInfo { points: Point[]; growth_per_day: number | null; last_cleaned: number | null; freed: number; alert: number | null; schedule: Schedule | null; schedule_problem: string | null }
 export interface Tracking { rules: Record<string, TrackInfo>; disk_free_pct: number | null }
-export interface Draft { id: string; name: string; category: string; paths: string[]; exclude: string[]; risk: Risk; description: string; busy: string[] }
+export interface Draft { id: string; name: string; category: string; paths: string[]; exclude: string[]; risk: Risk; description: string; busy: string[]; min_age_days?: number | null }
 export interface TestItem { path: string; size: number; why: string | null }
 export interface RuleTest { ok: boolean; error: string | null; count: number; total: number; measured: number; items: TestItem[]; blocked: TestItem[] }
 export interface CItem {
@@ -93,6 +94,16 @@ export interface AppRow {
   pid: number; name: string; bundle_id: string; path: string | null; mem: number; cpu: number; procs: number;
   bundle_bytes: number | null; data_bytes: number | null; protected: string | null; icon: string | null;
 }
+export interface InstalledApp {
+  name: string; bundle_id: string; version: string; path: string; bundle_bytes: number | null; data_bytes: number | null;
+  last_used: number | null; running: boolean; locked: string | null; needs_admin: boolean;
+}
+export interface DataItem { path: string; kind: string; size: number; mtime: number }
+export interface LeftoverGroup { id: string; total: number; newest: number; items: DataItem[] }
+export interface StartupItem {
+  label: string; plist: string; program: string | null; owner: string; scope: string; running: boolean;
+  run_at_load: boolean; keep_alive: boolean; disabled: boolean;
+}
 export interface QuitResult { pid: number; ok: boolean; error: string | null }
 
 const call = <T>(cmd: string, args?: Record<string, unknown>) => window.__TAURI__.core.invoke<T>(cmd, args);
@@ -111,6 +122,7 @@ export const api = {
   scanStatus: () => call<ScanStatus>("scan_status"),
   scanLoadCached: (root: string) => call<ScanMeta | null>("scan_load_cached", { root }),
   scanChildren: (path: string) => call<Children>("scan_children", { path }),
+  largeFiles: (path: string, minMb: number, minAgeDays: number) => call<LargeFile[]>("large_files", { path, minMb, minAgeDays }),
   cleanupState: () => call<CleanupState>("cleanup_state"),
   cleanupScan: () => call<void>("cleanup_scan"),
   cleanupCancel: () => call<void>("cleanup_cancel"),
@@ -125,6 +137,11 @@ export const api = {
   about: () => call<About>("about"),
   appsList: () => call<AppRow[]>("apps_list"),
   appsQuit: (targets: { pid: number; bundle_id: string }[], force: boolean) => call<QuitResult[]>("apps_quit", { targets, force }),
+  appsInstalled: () => call<InstalledApp[]>("apps_installed"),
+  appUninstallItems: (path: string) => call<DataItem[]>("app_uninstall_items", { path }),
+  appLeftovers: () => call<LeftoverGroup[]>("app_leftovers"),
+  startupItems: () => call<StartupItem[]>("startup_items"),
+  openLoginItems: () => call<void>("open_login_items"),
   rulesList: () => call<RuleInfo[]>("rules_list"),
   rulesStatus: () => call<RuleStatus[]>("rules_status"),
   rulesCustom: () => call<Draft[]>("rules_custom"),

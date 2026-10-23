@@ -30,6 +30,9 @@ pub struct Draft {
     pub description: String,
     #[serde(default)]
     pub busy: Vec<String>,
+    /// Leave items alone until nothing in them has changed for this many days.
+    #[serde(default)]
+    pub min_age_days: Option<u32>,
 }
 
 fn custom() -> String {
@@ -61,6 +64,7 @@ impl Draft {
             dir_name: None,
             markers: Vec::new(),
             stale_days: None,
+            min_age_days: self.min_age_days.filter(|d| *d > 0),
             app: None,
             custom: true,
         }
@@ -204,7 +208,7 @@ mod tests {
     }
 
     fn d(paths: &[&str]) -> Draft {
-        Draft { id: String::new(), name: "Test".into(), category: "Custom".into(), paths: paths.iter().map(|s| s.to_string()).collect(), exclude: vec![], risk: Risk::Review, description: String::new(), busy: vec![] }
+        Draft { id: String::new(), name: "Test".into(), category: "Custom".into(), paths: paths.iter().map(|s| s.to_string()).collect(), exclude: vec![], risk: Risk::Review, description: String::new(), busy: vec![], min_age_days: None }
     }
 
     #[test]

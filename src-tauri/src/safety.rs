@@ -98,6 +98,8 @@ pub enum Allowed<'a> {
 
 pub struct Safety {
     home: PathBuf,
+    /// Where apps are installed for all users (`/Applications`); a field so tests can use a temp folder.
+    apps_dir: PathBuf,
 }
 
 /// Directories that are never cleaned *as a whole* (their children may be, if allowed).
@@ -206,7 +208,22 @@ fn component_block(name: &str) -> Option<&'static str> {
 impl Safety {
     pub fn new(home: PathBuf) -> Safety {
         // Compare against the canonical home so /var/... vs /private/var/... (and tests in temp dirs) agree.
-        Safety { home: home.canonicalize().unwrap_or(home) }
+        Safety { home: home.canonicalize().unwrap_or(home), apps_dir: PathBuf::from("/Applications") }
+    }
+
+    /// Use another folder as the shared Applications folder (tests).
+    pub fn with_apps_dir(mut self, dir: PathBuf) -> Safety {
+        self.apps_dir = dir.canonicalize().unwrap_or(dir);
+        self
+    }
+
+    /// An app bundle installed for all users: `<Applications>/X.app` or one vendor folder down
+    /// (`<Applications>/Vendor/X.app`). Never the folder itself and never anything inside a bundle.
+    fn is_installed_app(&self, real: &Path) -> bool {
+        let Ok(rel) = real.strip_prefix(&self.apps_dir) else { return false };
+        let parts: Vec<_> = rel.components().collect();
+        let in_place = parts.len() == 1 || (parts.len() == 2 && !Path::new(parts[0].as_os_str()).extension().is_some_and(|x| x == "app"));
+        in_place && real.extension().is_some_and(|x| x == "app") && real.join("Contents").is_dir()
     }
 
     pub fn home(&self) -> &Path {
@@ -327,7 +344,7 @@ impl Safety {
             }
             Allowed::UserPick => {
                 let under_volume = real.strip_prefix("/Volumes").map(|r| r.components().count() >= 2).unwrap_or(false);
-                if !(real.starts_with(&self.home) || under_volume) {
+                if !(real.starts_with(&self.home) || under_volume || self.is_installed_app(&real)) {
                     return Err(Denied::NotAllowed);
                 }
             }
@@ -342,6 +359,28 @@ mod tests {
     use crate::rules::Registry;
     use std::fs;
     use tempfile::TempDir;
+
+    #[test]
+    fn a_user_may_pick_an_installed_app_bundle_but_nothing_else_in_applications() {
+        let t = TempDir::new().unwrap();
+        let root = t.path().canonicalize().unwrap();
+        let (home, apps) = (root.join("home"), root.join("Applications"));
+        for d in ["Example.app/Contents/MacOS", "Vendor/Tool.app/Contents", "Vendor/Deep/Nested.app/Contents", "Folder/data"] {
+            fs::create_dir_all(apps.join(d)).unwrap();
+        }
+        fs::create_dir_all(&home).unwrap();
+        fs::write(apps.join("notes.txt"), b"x").unwrap();
+        let s = Safety::new(home).with_apps_dir(apps.clone());
+        // temp folders live under /private, which the blocklist rightly refuses, so test the rule itself;
+        // for the real /Applications the full check also runs it (see UserPick in `check`)
+        let ok = |p: &str| s.is_installed_app(&apps.join(p));
+        assert!(ok("Example.app") && ok("Vendor/Tool.app"));
+        assert!(!ok("Example.app/Contents/MacOS"), "nothing inside a bundle");
+        assert!(!ok("Vendor/Deep/Nested.app"), "only one vendor folder down");
+        assert!(!ok("Folder") && !ok("Folder/data") && !ok("notes.txt"), "only app bundles");
+        assert!(!ok("Vendor"), "not a vendor folder itself");
+        assert!(Safety::new(PathBuf::from("/Users/x")).check(Path::new("/Applications"), &Allowed::UserPick).is_err(), "never the folder");
+    }
 
     /// A throw-away "home" with the folders the blocklist knows about.
     fn fixture() -> (TempDir, Safety) {

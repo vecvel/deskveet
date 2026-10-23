@@ -493,6 +493,28 @@ pub fn find<'a>(tree: &'a Node, root: &Path, target: &Path) -> Option<&'a Node> 
     Some(cur)
 }
 
+/// Every file below `node` of at least `min_bytes` that has not changed since `changed_before` (unix
+/// seconds), largest first, at most `limit`. Uses the scan's per-folder list of largest files, which a file
+/// this large is always part of.
+pub fn large_files(node: &Node, base: &Path, min_bytes: u64, changed_before: i64, limit: usize) -> Vec<(PathBuf, u64, i64)> {
+    fn walk(n: &Node, dir: &Path, min: u64, before: i64, out: &mut Vec<(PathBuf, u64, i64)>) {
+        if n.size < min {
+            return; // nothing below can be this large
+        }
+        for f in n.top.iter().filter(|f| f.size >= min && f.mtime <= before) {
+            out.push((dir.join(&*f.name), f.size, f.mtime));
+        }
+        for k in &n.kids {
+            walk(k, &dir.join(&*k.name), min, before, out);
+        }
+    }
+    let mut out = Vec::new();
+    walk(node, base, min_bytes, changed_before, &mut out);
+    out.sort_by(|a, b| b.1.cmp(&a.1));
+    out.truncate(limit);
+    out
+}
+
 pub fn rows(node: &Node, base: &Path) -> Vec<Row> {
     let mut out = Vec::with_capacity(node.kids.len() + node.top.len() + 2);
     for k in &node.kids {
@@ -514,6 +536,20 @@ pub fn rows(node: &Node, base: &Path) -> Vec<Row> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn large_files_finds_big_old_files_anywhere_below_a_folder() {
+        let f = |name: &str, mb: u64, mtime: i64| FileEnt { name: name.into(), size: mb * 1_000_000, mtime };
+        let movies = Node { name: "Movies".into(), size: 3_000_000_000, top: vec![f("old.mov", 2_000, 100), f("new.mov", 900, 5_000)], ..Default::default() };
+        let deep = Node { name: "b".into(), size: 600_000_000, top: vec![f("disk.img", 600, 50)], ..Default::default() };
+        let a = Node { name: "a".into(), size: 600_000_000, kids: vec![deep], ..Default::default() };
+        let small = Node { name: "tiny".into(), size: 10_000_000, top: vec![f("x", 10, 1)], ..Default::default() };
+        let root = Node { name: "home".into(), size: 4_000_000_000, kids: vec![movies, a, small], top: vec![f("big.zip", 500, 10)], ..Default::default() };
+        let got = large_files(&root, Path::new("/h"), 500_000_000, 1_000, 10);
+        let names: Vec<String> = got.iter().map(|(p, _, _)| p.to_string_lossy().into_owned()).collect();
+        assert_eq!(names, ["/h/Movies/old.mov", "/h/a/b/disk.img", "/h/big.zip"], "largest first; new.mov changed too recently");
+        assert_eq!(large_files(&root, Path::new("/h"), 500_000_000, 1_000, 1).len(), 1, "limit");
+    }
     use std::os::unix::fs::PermissionsExt;
     use tempfile::tempdir;
 

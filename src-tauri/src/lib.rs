@@ -3,6 +3,7 @@ pub mod cleaner;
 pub mod commands;
 pub mod fsutil;
 pub mod history;
+pub mod inventory;
 pub mod locate;
 pub mod platform;
 pub mod rules;
@@ -63,6 +64,7 @@ pub fn run() {
             commands::scan_load_cached,
             commands::scan_children,
             commands::scan_clear_cache,
+            commands::large_files,
             commands::cleanup_state,
             commands::cleanup_scan,
             commands::cleanup_cancel,
@@ -94,6 +96,11 @@ pub fn run() {
             commands::rules_import,
             commands::locations_redetect,
             commands::apps_quit,
+            commands::apps_installed,
+            commands::app_uninstall_items,
+            commands::app_leftovers,
+            commands::startup_items,
+            commands::open_login_items,
             commands::ui_get_all,
             commands::ui_set,
             commands::artifact_state,

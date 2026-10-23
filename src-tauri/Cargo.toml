@@ -36,7 +36,7 @@ glob = "0.3"
 # discovered by listing ~/.Trash without Full Disk Access. Other platforms use the `trash` crate.
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
-objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSError", "NSFileManager", "NSString", "NSURL", "NSArray", "NSData", "NSDictionary", "NSGeometry"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSError", "NSFileManager", "NSString", "NSURL", "NSArray", "NSData", "NSDictionary", "NSGeometry", "NSBundle"] }
 # Running apps (the Apps tab): NSWorkspace / NSRunningApplication, and their icons as small PNGs.
 objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "libc", "NSRunningApplication", "NSWorkspace", "NSImage", "NSImageRep", "NSBitmapImageRep", "NSGraphicsContext", "objc2-core-graphics"] }
 objc2-core-graphics = { version = "0.3", default-features = false, features = ["std", "CGImage"] }

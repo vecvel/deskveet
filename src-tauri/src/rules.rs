@@ -61,6 +61,9 @@ pub struct Rule {
     #[serde(default)]
     pub markers: Vec<String>,
     pub stale_days: Option<u32>,
+    /// Path rules only: leave items alone until nothing in them has changed for this many days.
+    #[serde(default)]
+    pub min_age_days: Option<u32>,
     /// Bundle id of the app this rule belongs to; the rule is "not installed" without it.
     pub app: Option<String>,
     /// Made by the user (stored in rules.user.toml), not shipped with the app.
@@ -86,7 +89,7 @@ pub struct Registry {
     pub rules: Vec<Rule>,
 }
 
-const DYNAMIC_KINDS: &[&str] = &["simctl_devices", "simctl_runtimes", "trash"];
+const DYNAMIC_KINDS: &[&str] = &["simctl_devices", "simctl_runtimes", "trash", "tm_snapshots"];
 
 impl Registry {
     pub fn parse(text: &str) -> Result<Registry, String> {
@@ -165,7 +168,7 @@ impl Registry {
             }
             if let Some(t) = &r.tool {
                 for a in t {
-                    if a.contains('<') && !matches!(a.as_str(), "<udid>" | "<id>") {
+                    if a.contains('<') && !matches!(a.as_str(), "<udid>" | "<id>" | "<date>") {
                         return bad("unknown tool placeholder");
                     }
                 }

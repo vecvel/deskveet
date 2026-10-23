@@ -4,7 +4,7 @@ import { bytes, env, num, tilde } from "./fmt";
 
 export const CATEGORIES = ["Custom", "Developer", "Package managers", "Browsers", "App caches", "System"];
 
-export const emptyDraft = (): Draft => ({ id: "", name: "", category: "Custom", paths: [], exclude: [], risk: "review", description: "", busy: [] });
+export const emptyDraft = (): Draft => ({ id: "", name: "", category: "Custom", paths: [], exclude: [], risk: "review", description: "", busy: [], min_age_days: null });
 
 const lines = (s: string) => s.split("\n").map((l) => l.trim()).filter(Boolean);
 const toHomeTilde = (p: string) => (env.home && p.startsWith(env.home + "/") ? "~" + p.slice(env.home.length) : p);
@@ -24,6 +24,7 @@ export function openRuleEditor(start: Draft, onSaved: (id: string) => void) {
   const exclude = h("textarea", { rows: "2", placeholder: "~/Downloads/keep-*.dmg", "aria-label": "Exclude", spellcheck: "false" });
   exclude.value = d.exclude.join("\n");
   const busy = h("input", { type: "text", value: d.busy.join(", "), placeholder: "Xcode, Simulator", "aria-label": "Apps that use it" });
+  const age = h("input", { type: "number", min: "0", step: "1", class: "num", value: d.min_age_days ? String(d.min_age_days) : "", placeholder: "0", "aria-label": "Minimum age in days" });
   const desc = h("textarea", { rows: "2", placeholder: "What happens if these are deleted", "aria-label": "Description" });
   desc.value = d.description;
   const preview = h("div", { class: "re-preview" });
@@ -46,6 +47,7 @@ export function openRuleEditor(start: Draft, onSaved: (id: string) => void) {
   function collect() {
     d.name = name.value; d.category = cat.value; d.paths = lines(paths.value); d.exclude = lines(exclude.value);
     d.busy = busy.value.split(",").map((s) => s.trim()).filter(Boolean); d.description = desc.value;
+    const days = parseInt(age.value, 10); d.min_age_days = days > 0 ? days : null;
   }
   function schedule() { clearTimeout(timer); timer = window.setTimeout(() => void test(), 350); }
   async function test() {
@@ -69,7 +71,7 @@ export function openRuleEditor(start: Draft, onSaved: (id: string) => void) {
       ...t.blocked.slice(0, 5).map((b) => h("div", { class: "why bad small", text: `${tilde(b.path)}: ${b.why}` })));
   }
 
-  for (const el of [name, paths, exclude]) el.addEventListener("input", schedule);
+  for (const el of [name, paths, exclude, age]) el.addEventListener("input", schedule);
   cat.addEventListener("change", () => collect());
   save.addEventListener("click", async () => {
     collect();
@@ -86,6 +88,9 @@ export function openRuleEditor(start: Draft, onSaved: (id: string) => void) {
       h("div", { class: "field" }, h("div", { class: "row sb" }, h("span", { class: "nm", text: "Paths" }), choose), paths,
         h("span", { class: "tertiary small", text: "One per line. * matches any name in one folder; {gradle_home} style locations work too. Custom rules always move items to the Trash." })),
       field("Exclude", exclude, "Optional. Items matching these are left alone."),
+      h("label", { class: "field" }, h("span", { class: "nm", text: "Minimum age" }),
+        h("div", { class: "row gap-2" }, age, h("span", { class: "muted", text: "days" })),
+        h("span", { class: "tertiary small", text: "Optional. Only items that have not changed for this many days, for example 30 for old downloads." })),
       field("Apps that use it", busy, "Optional. If one of these is running, cleaning asks you first."),
       field("Description", desc),
       preview),

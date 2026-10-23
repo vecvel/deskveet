@@ -1,4 +1,5 @@
-use super::{Apps, Disk, MemExtra, Platform, Power, Pressure, ProcFacts, ProcessInfo, RunningApp};
+use super::{Apps, Bundle, Disk, LaunchDef, MemExtra, Platform, Power, Pressure, ProcFacts, ProcessInfo, RunningApp};
+use std::collections::HashSet;
 use std::ffi::{c_void, CString};
 use std::io;
 use std::os::unix::ffi::OsStrExt;
@@ -259,6 +260,40 @@ mod un {
     }
 }
 
+/// An app bundle's id and version, read through NSBundle (works for XML and binary Info.plists).
+fn bundle_info(path: &Path) -> Option<Bundle> {
+    use objc2_foundation::{NSBundle, NSString};
+    objc2::rc::autoreleasepool(|_| {
+        let b = NSBundle::bundleWithPath(&NSString::from_str(&path.to_string_lossy()))?;
+        let id = b.bundleIdentifier()?.to_string();
+        let version = b
+            .objectForInfoDictionaryKey(&NSString::from_str("CFBundleShortVersionString"))
+            .and_then(|o| o.downcast::<NSString>().ok())
+            .map(|s| s.to_string())
+            .unwrap_or_default();
+        Some(Bundle { path: path.to_path_buf(), bundle_id: id, version })
+    })
+}
+
+/// "2026-10-20 08:12:33 +0000" (mdls) to unix seconds.
+fn parse_md_date(s: &str) -> Option<i64> {
+    let s = s.trim();
+    let (date, rest) = s.split_once(' ')?;
+    let time = rest.split(' ').next()?;
+    let d: Vec<i64> = date.split('-').map(|x| x.parse().ok()).collect::<Option<_>>()?;
+    let t: Vec<i64> = time.split(':').map(|x| x.parse().ok()).collect::<Option<_>>()?;
+    if d.len() != 3 || t.len() != 3 {
+        return None;
+    }
+    // days from civil (Howard Hinnant), UTC
+    let (y, m, day) = (if d[1] <= 2 { d[0] - 1 } else { d[0] }, d[1], d[2]);
+    let era = y.div_euclid(400);
+    let yoe = y - era * 400;
+    let doy = (153 * (m + if m > 2 { -3 } else { 9 }) + 2) / 5 + day - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    Some((era * 146_097 + doe - 719_468) * 86_400 + t[0] * 3600 + t[1] * 60 + t[2])
+}
+
 fn osascript_path(script: &str) -> Option<PathBuf> {
     let out = Command::new("/usr/bin/osascript").args(["-e", script]).stderr(Stdio::null()).output().ok()?;
     let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
@@ -394,6 +429,99 @@ end run"#;
             return None;
         }
         Some(text.lines().filter(|l| !l.is_empty()).map(String::from).collect())
+    }
+
+    fn installed_apps(&self) -> Vec<Bundle> {
+        let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
+        let mut roots = vec![PathBuf::from("/Applications"), home.join("Applications")];
+        // vendor folders such as /Applications/Utilities or /Applications/Microsoft Office
+        if let Ok(rd) = std::fs::read_dir("/Applications") {
+            roots.extend(rd.flatten().map(|e| e.path()).filter(|p| p.is_dir() && p.extension().is_none_or(|x| x != "app")));
+        }
+        let mut out = Vec::new();
+        let mut seen = HashSet::new();
+        for r in roots {
+            let Ok(rd) = std::fs::read_dir(&r) else { continue };
+            for p in rd.flatten().map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x == "app")) {
+                if let Some(b) = bundle_info(&p) {
+                    if seen.insert(p.clone()) {
+                        out.push(b);
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    fn known_bundle_ids(&self) -> HashSet<String> {
+        let mut ids: HashSet<String> = self.installed_apps().into_iter().map(|b| b.bundle_id.to_lowercase()).collect();
+        // Spotlight knows every app bundle on the Mac, including helpers inside other apps.
+        if let Ok(o) = Command::new("/usr/bin/mdfind").arg("kMDItemContentType == 'com.apple.application-bundle'").stderr(Stdio::null()).output() {
+            for line in String::from_utf8_lossy(&o.stdout).lines() {
+                if let Some(b) = bundle_info(Path::new(line)) {
+                    ids.insert(b.bundle_id.to_lowercase());
+                }
+            }
+        }
+        ids.extend(self.running_apps().into_iter().map(|a| a.bundle_id.to_lowercase()));
+        // Parts of software that are not apps: browser plug-ins, preference panes, and launch items
+        // (their labels are usually the id their data is stored under).
+        let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
+        for dir in [PathBuf::from("/Library/Internet Plug-Ins"), PathBuf::from("/Library/PreferencePanes"), home.join("Library/PreferencePanes"), home.join("Library/Internet Plug-Ins")] {
+            let Ok(rd) = std::fs::read_dir(&dir) else { continue };
+            for p in rd.flatten().map(|e| e.path()) {
+                if let Some(b) = bundle_info(&p) {
+                    ids.insert(b.bundle_id.to_lowercase());
+                }
+            }
+        }
+        ids.extend(self.launch_defs().into_iter().map(|d| d.label.to_lowercase()).filter(|l| !l.is_empty()));
+        ids
+    }
+
+    fn launch_defs(&self) -> Vec<LaunchDef> {
+        let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
+        let dirs = [home.join("Library/LaunchAgents"), PathBuf::from("/Library/LaunchAgents"), PathBuf::from("/Library/LaunchDaemons")];
+        let mut out = Vec::new();
+        for d in dirs {
+            let Ok(rd) = std::fs::read_dir(&d) else { continue };
+            for p in rd.flatten().map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x == "plist")) {
+                // plutil reads both XML and binary property lists
+                let Ok(o) = Command::new("/usr/bin/plutil").args(["-convert", "json", "-o", "-"]).arg(&p).stderr(Stdio::null()).output() else { continue };
+                let Ok(v) = serde_json::from_slice::<serde_json::Value>(&o.stdout) else { continue };
+                let program = v["Program"].as_str().map(String::from).or_else(|| v["ProgramArguments"][0].as_str().map(String::from));
+                out.push(LaunchDef {
+                    label: v["Label"].as_str().unwrap_or_default().to_string(),
+                    program,
+                    run_at_load: v["RunAtLoad"].as_bool().unwrap_or(false),
+                    keep_alive: !v["KeepAlive"].is_null() && v["KeepAlive"] != serde_json::Value::Bool(false),
+                    disabled: v["Disabled"].as_bool().unwrap_or(false),
+                    plist: p,
+                });
+            }
+        }
+        out
+    }
+
+    fn open_login_items_settings(&self) -> io::Result<()> {
+        spawn_reaped(Command::new("/usr/bin/open").arg("x-apple.systempreferences:com.apple.LoginItems-Settings.extension"))
+    }
+
+    fn last_used(&self, paths: &[PathBuf]) -> Vec<Option<i64>> {
+        // Spotlight's "last opened" date, 100 files per mdls call; values are separated by NUL.
+        let mut out = Vec::with_capacity(paths.len());
+        for chunk in paths.chunks(100) {
+            let got = Command::new("/usr/bin/mdls")
+                .args(["-name", "kMDItemLastUsedDate", "-raw", "-nullMarker", "-"])
+                .args(chunk)
+                .stderr(Stdio::null())
+                .output()
+                .ok()
+                .map(|o| String::from_utf8_lossy(&o.stdout).split('\0').map(parse_md_date).collect::<Vec<_>>())
+                .unwrap_or_default();
+            out.extend((0..chunk.len()).map(|i| got.get(i).copied().flatten()));
+        }
+        out
     }
 
     fn sleep_now(&self) -> io::Result<()> {
@@ -639,6 +767,13 @@ impl ProcessInfo for Mac {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn spotlight_dates_parse_to_unix_seconds() {
+        assert_eq!(parse_md_date("1970-01-01 00:00:00 +0000"), Some(0));
+        assert_eq!(parse_md_date("2026-10-20 08:12:33 +0000"), Some(1_792_483_953));
+        assert_eq!(parse_md_date("-"), None);
+    }
 
     fn facts<'a>(pid: u32, uid: u32, name: &'a str, exe: Option<&'a Path>) -> ProcFacts<'a> {
         ProcFacts { pid, uid, name, exe }

@@ -282,6 +282,13 @@ fn valid_udid(s: &str) -> bool {
     s.len() == 36 && s.chars().all(|c| c.is_ascii_hexdigit() || c == '-')
 }
 
+/// A Time Machine snapshot date as tmutil writes it: 2026-10-20-123456.
+fn valid_snapshot_date(s: &str) -> bool {
+    let b = s.as_bytes();
+    b.len() == 17
+        && b.iter().enumerate().all(|(i, c)| if matches!(i, 4 | 7 | 10) { *c == b'-' } else { c.is_ascii_digit() })
+}
+
 fn valid_id(s: &str) -> bool {
     !s.is_empty() && s.len() <= 100 && s.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_'))
 }
@@ -475,6 +482,7 @@ impl Engine {
             (Kind::Dynamic, Some("simctl_devices")) => self.sim_devices(rule),
             (Kind::Dynamic, Some("simctl_runtimes")) => self.sim_runtimes(rule),
             (Kind::Dynamic, Some("trash")) => self.trash_items(rule),
+            (Kind::Dynamic, Some("tm_snapshots")) => self.tm_snapshots(rule),
             _ if rule.id == "simulators.unavailable" => self.sim_unavailable(rule),
             _ if rule.method == Method::Tool => Ok(self.tool_items(rule)),
             _ => Ok(self.path_items(rule)),
@@ -500,9 +508,12 @@ impl Engine {
         // `…/Chrome/*/Cache` matches many folders literally called "Cache": show "<profile>/Cache".
         let two_part = rule.paths.iter().any(|p| p.rsplit_once('/').is_some_and(|(head, _)| head.contains('*')));
         let measured: Vec<(PathBuf, Measure)> = paths.into_par_iter().map(|p| { let me = fsutil::measure(&p); (p, me) }).collect();
+        // a minimum age: skip anything changed more recently than that
+        let newest_ok = rule.min_age_days.map(|d| crate::scan::now_secs() as i64 - i64::from(d) * 86_400);
         measured
             .into_iter()
             .filter(|(_, me)| me.bytes > 0 || me.files > 0)
+            .filter(|(_, me)| newest_ok.is_none_or(|t| me.mtime <= t))
             .map(|(p, me)| {
                 let leaf = |q: &Path| q.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
                 let name = match (two_part, p.parent()) {
@@ -626,6 +637,33 @@ impl Engine {
                 it.blocked = Some("Built into Xcode and cannot be deleted".into());
             }
             out.push(it);
+        }
+        Ok(out)
+    }
+
+    /// Local Time Machine snapshots (`tmutil listlocalsnapshots /`), one item each. Snapshots that macOS
+    /// keeps for a system update are listed as blocked: macOS manages those itself.
+    fn tm_snapshots(&self, rule: &Rule) -> Result<Vec<Item>, String> {
+        let list = self.sys.capture(&sv(["tmutil", "listlocalsnapshots", "/"]))?;
+        let mut out = Vec::new();
+        for line in list.lines().map(str::trim).filter(|l| l.starts_with("com.apple.TimeMachine.")) {
+            let Some(date) = line.split('.').find(|p| valid_snapshot_date(p)) else { continue };
+            let (y, mo, d, t) = (&date[0..4], &date[5..7], &date[8..10], &date[11..]);
+            let mut it = self.new_item(rule, date, format!("Snapshot of {d}/{mo}/{y}, {}:{}", &t[0..2], &t[2..4]));
+            it.extra = Some(date.to_string());
+            it.info.push("macOS does not report the size of each snapshot".into());
+            out.push(it);
+        }
+        if let Ok(apfs) = self.sys.capture(&sv(["diskutil", "apfs", "listSnapshots", "/"])) {
+            for name in apfs.lines().filter_map(|l| l.trim().strip_prefix("Name:")).map(str::trim) {
+                if name.starts_with("com.apple.TimeMachine.") {
+                    continue;
+                }
+                let mut it = self.new_item(rule, name, "System update snapshot".into());
+                it.info.push(name.to_string());
+                it.blocked = Some("Managed by macOS: it is removed after the update finishes".into());
+                out.push(it);
+            }
         }
         Ok(out)
     }
@@ -923,6 +961,7 @@ impl Engine {
             .map(|a| match a.as_str() {
                 "<udid>" => extra.as_deref().filter(|s| valid_udid(s)).map(str::to_string).ok_or_else(|| "invalid device id".to_string()),
                 "<id>" => extra.as_deref().filter(|s| valid_id(s)).map(str::to_string).ok_or_else(|| "invalid runtime id".to_string()),
+                "<date>" => extra.as_deref().filter(|s| valid_snapshot_date(s)).map(str::to_string).ok_or_else(|| "invalid snapshot date".to_string()),
                 s => Ok(s.to_string()),
             })
             .collect()
@@ -1682,6 +1721,58 @@ mod tests {
         assert!(f.home.join("Documents/keep.txt").exists());
     }
 
+    fn age(p: &Path, days: u64) {
+        let t = std::time::SystemTime::now() - std::time::Duration::from_secs(days * 86_400);
+        fs::File::options().write(true).open(p).unwrap().set_modified(t).unwrap();
+    }
+
+    #[test]
+    fn old_installers_only_takes_installers_untouched_for_30_days() {
+        let f = fx();
+        let dl = f.home.join("Downloads");
+        for (name, days) in [("old.dmg", 45), ("new.dmg", 3), ("tool.pkg", 90), ("notes.txt", 400), ("disk.iso", 31)] {
+            put(&dl.join(name), 10_000);
+            age(&dl.join(name), days);
+        }
+        let rr = scan(&f, "downloads.installers");
+        let mut names: Vec<&str> = rr.items.iter().map(|i| i.label.as_str()).collect();
+        names.sort();
+        assert_eq!(names, ["disk.iso", "old.dmg", "tool.pkg"], "new.dmg is too recent, notes.txt is not an installer");
+        assert!(rr.items.iter().all(|i| i.blocked.is_none()));
+        let plan = f.eng.plan(&[rr.clone()], &ids(&rr), &[], false);
+        let rep = run(&f, &plan, &RunOpts::default());
+        assert_eq!(rep.ok, 3);
+        assert!(dl.join("new.dmg").exists() && dl.join("notes.txt").exists() && dl.is_dir());
+    }
+
+    #[test]
+    fn time_machine_snapshots_are_listed_and_only_offered_as_an_admin_command() {
+        let f = fx();
+        f.sys.captures.lock().unwrap().insert(
+            "tmutil listlocalsnapshots /".into(),
+            "Snapshots for disk /:\ncom.apple.TimeMachine.2026-10-20-123456.local\ncom.apple.TimeMachine.2026-10-21-080000.local\ngarbage line\n".into(),
+        );
+        f.sys.captures.lock().unwrap().insert(
+            "diskutil apfs listSnapshots /".into(),
+            "+-- X\n    Name:        com.apple.os.update-ABC\n    Name:        com.apple.TimeMachine.2026-10-20-123456.local\n".into(),
+        );
+        let rr = scan(&f, "system.tm_snapshots");
+        assert_eq!(rr.items.len(), 3);
+        let update = rr.items.iter().find(|i| i.label == "System update snapshot").unwrap();
+        assert!(update.blocked.as_deref().unwrap().contains("Managed by macOS"));
+        let tm: Vec<_> = rr.items.iter().filter(|i| i.blocked.is_none()).collect();
+        assert_eq!(tm.len(), 2);
+        assert_eq!(tm.iter().find(|i| i.extra.as_deref() == Some("2026-10-20-123456")).unwrap().label, "Snapshot of 20/10/2026, 12:34");
+        let plan = f.eng.plan(&[rr.clone()], &ids(&rr), &[], false);
+        for it in plan.items.iter().filter(|i| !i.label.starts_with("System")) {
+            assert!(it.admin_cmd.as_deref().unwrap().starts_with("sudo tmutil deletelocalsnapshots 2026-10-2"));
+            assert!(it.blocked.is_some(), "never run by Deskveet itself");
+        }
+        run(&f, &plan, &RunOpts { confirm_erase: true, ..Default::default() });
+        assert!(f.sys.tool_log.lock().unwrap().is_empty(), "nothing was run");
+        assert!(valid_snapshot_date("2026-10-20-123456") && !valid_snapshot_date("2026-10-20-12345") && !valid_snapshot_date("2026-10-20;rm -rf"));
+    }
+
     #[test]
     fn empty_trash_from_the_menu_erases_only_the_trash() {
         let f = fx();
@@ -1918,7 +2009,7 @@ mod tests {
         put(&f.home.join("Downloads/a.dmg"), 300_000);
         put(&f.home.join("Downloads/b.dmg"), 100_000);
         put(&f.home.join("Downloads/keep.pdf"), 1_000);
-        let d = Draft { id: "user.old_dmgs".into(), name: "Old DMGs".into(), category: "Custom".into(), paths: vec!["~/Downloads/*.dmg".into()], exclude: vec![], risk: Risk::Review, description: String::new(), busy: vec![] };
+        let d = Draft { id: "user.old_dmgs".into(), name: "Old DMGs".into(), category: "Custom".into(), paths: vec!["~/Downloads/*.dmg".into()], exclude: vec![], risk: Risk::Review, description: String::new(), busy: vec![], min_age_days: None };
         let t = f.eng.test_rule(&d);
         assert!(t.ok, "{:?}", t.error);
         assert_eq!(t.count, 2);

@@ -23,6 +23,7 @@
 #   opt_in          true = never selected by "clean all safe", needs explicit opt-in
 #   needs_admin     true = Deskveet never runs it, it shows the command instead
 #   stale_days      default age for artifact / project rules
+#   min_age_days    path rules: only items unchanged for this many days
 #
 # Locations (schema 2): folders tools let users move. A rule path may start with `{id}`.
 #   env      variables to try in order; "VAR/sub" means $VAR joined with sub
@@ -31,7 +32,7 @@
 # Any candidate that is missing, or is home, a protected folder or a system path, is ignored.
 
 schema_version = 2
-rules_version = "2026.10.4"
+rules_version = "2026.10.5"
 
 [[location]]
 id = "derived_data"
@@ -791,6 +792,32 @@ description = "Deletes downloaded update packages that were already applied or a
 regenerates = "Downloaded again when the app finds an update."
 method = "trash"
 busy = ["ShipIt", "Squirrel"]
+
+[[rule]]
+id = "downloads.installers"
+name = "Old installers"
+category = "System"
+paths = ["~/Downloads/*.dmg", "~/Downloads/*.pkg", "~/Downloads/*.mpkg", "~/Downloads/*.iso"]
+min_age_days = 30
+risk = "review"
+description = "Moves disk images and installer packages in Downloads that you have not touched for 30 days to the Trash. Apps you installed from them are not affected."
+regenerates = "Download the installer again if you need it."
+method = "trash"
+
+[[rule]]
+id = "system.tm_snapshots"
+name = "Time Machine local snapshots"
+category = "System"
+kind = "dynamic"
+dynamic = "tm_snapshots"
+paths = []
+detect = "test -x /usr/bin/tmutil"
+risk = "review"
+description = "Deletes a local Time Machine snapshot. macOS removes these by itself when space runs low (they are the purgeable part of your disk), so this only frees that space sooner."
+regenerates = "Time Machine makes new ones while it backs up."
+method = "tool"
+tool = ["tmutil", "deletelocalsnapshots", "<date>"]
+needs_admin = true
 
 [[rule]]
 id = "system.trash"

@@ -333,6 +333,40 @@ pub fn scan_children(state: State<'_, AppState>, path: String) -> Result<Childre
     Ok(Children { size: node.size, files: node.files, rows, path })
 }
 
+#[derive(Serialize)]
+pub struct LargeFile {
+    pub path: String,
+    pub name: String,
+    pub size: u64,
+    pub mtime: i64,
+    /// When the file was last opened, if Spotlight knows (unix seconds).
+    pub last_used: Option<i64>,
+}
+
+/// Large files below `path` from the loaded scan, unchanged for `min_age_days`, protected places left out.
+#[tauri::command(async)]
+pub fn large_files(state: State<'_, AppState>, path: String, min_mb: u64, min_age_days: u32) -> Result<Vec<LargeFile>, String> {
+    let loaded = state.loaded.lock().unwrap().clone().ok_or("No scan loaded.")?;
+    let target = Path::new(&path);
+    let node = scan::find(&loaded.tree, &loaded.root, target).ok_or("That folder is not part of the scan.")?;
+    let before = scan::now_secs() as i64 - i64::from(min_age_days) * 86_400;
+    let found = scan::large_files(node, target, min_mb * 1_000_000, before, 300);
+    let found: Vec<_> = found.into_iter().filter(|(p, _, _)| state.engine.safety.check(p, &crate::safety::Allowed::UserPick).is_ok()).collect();
+    let paths: Vec<PathBuf> = found.iter().map(|(p, _, _)| p.clone()).collect();
+    let used = crate::platform::current().last_used(&paths);
+    Ok(found
+        .into_iter()
+        .zip(used)
+        .map(|((p, size, mtime), last_used)| LargeFile {
+            name: p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(),
+            path: p.to_string_lossy().into_owned(),
+            size,
+            mtime,
+            last_used,
+        })
+        .collect())
+}
+
 #[tauri::command(async)]
 pub fn scan_clear_cache(state: State<'_, AppState>) -> usize {
     *state.loaded.lock().unwrap() = None;
@@ -724,6 +758,99 @@ pub fn apps_quit(state: State<'_, AppState>, targets: Vec<QuitTarget>, force: bo
             }
         })
         .collect()
+}
+
+// ───────────────────────────── installed apps, leftovers, startup items ─────────────────────────────
+
+#[derive(Serialize)]
+pub struct InstalledApp {
+    pub name: String,
+    pub bundle_id: String,
+    pub version: String,
+    pub path: String,
+    pub bundle_bytes: Option<u64>,
+    pub data_bytes: Option<u64>,
+    pub last_used: Option<i64>,
+    pub running: bool,
+    /// Why it cannot be removed here, if it cannot.
+    pub locked: Option<&'static str>,
+    /// macOS will ask for an administrator password to move the app itself (it belongs to the system).
+    pub needs_admin: bool,
+}
+
+fn app_name(b: &crate::platform::Bundle) -> String {
+    b.path.file_stem().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()
+}
+
+#[tauri::command(async)]
+pub fn apps_installed(state: State<'_, AppState>) -> Vec<InstalledApp> {
+    use crate::platform::Apps;
+    let plat = platform::current();
+    let installed = plat.installed_apps();
+    let running: std::collections::HashSet<String> = plat.running_apps().into_iter().map(|a| a.bundle_id).collect();
+    let as_running: Vec<crate::platform::RunningApp> = installed
+        .iter()
+        .map(|b| crate::platform::RunningApp { pid: 0, name: app_name(b), bundle_id: b.bundle_id.clone(), bundle_path: Some(b.path.clone()) })
+        .collect();
+    state.app_sizes.request(&as_running, state.engine.home());
+    let used = plat.last_used(&installed.iter().map(|b| b.path.clone()).collect::<Vec<_>>());
+    let mut out: Vec<InstalledApp> = installed
+        .iter()
+        .zip(used)
+        .map(|(b, last_used)| {
+            let sizes = state.app_sizes.get(&b.bundle_id);
+            let writable = std::ffi::CString::new(b.path.to_string_lossy().as_bytes()).is_ok_and(|c| unsafe { libc::access(c.as_ptr(), libc::W_OK) } == 0);
+            InstalledApp {
+                name: app_name(b),
+                bundle_id: b.bundle_id.clone(),
+                version: b.version.clone(),
+                path: b.path.to_string_lossy().into_owned(),
+                bundle_bytes: sizes.map(|s| s.0),
+                data_bytes: sizes.map(|s| s.1),
+                last_used,
+                running: running.contains(&b.bundle_id),
+                locked: crate::inventory::locked_reason(b),
+                needs_admin: !writable,
+            }
+        })
+        .collect();
+    out.sort_by_key(|a| a.name.to_lowercase());
+    out
+}
+
+/// What uninstalling the app at `path` would move to the Trash. The path must be an installed app that may
+/// be removed and is not running; the list is computed here, never taken from the page.
+#[tauri::command(async)]
+pub fn app_uninstall_items(state: State<'_, AppState>, path: String) -> Result<Vec<crate::inventory::DataItem>, String> {
+    use crate::platform::Apps;
+    let plat = platform::current();
+    let b = plat.installed_apps().into_iter().find(|b| b.path == Path::new(&path)).ok_or("That app is not installed any more.")?;
+    if let Some(why) = crate::inventory::locked_reason(&b) {
+        return Err(format!("{} cannot be removed: {}.", app_name(&b), why.to_lowercase()));
+    }
+    if plat.running_apps().iter().any(|a| a.bundle_id == b.bundle_id) {
+        return Err(format!("{} is open. Quit it first.", app_name(&b)));
+    }
+    Ok(crate::inventory::uninstall_items(state.engine.home(), &b, &app_name(&b), &state.engine.safety))
+}
+
+#[tauri::command(async)]
+pub fn app_leftovers(state: State<'_, AppState>) -> Vec<crate::inventory::LeftoverGroup> {
+    let known = platform::current().known_bundle_ids();
+    // data still being written is in use (by a tool or a helper), so only data untouched for a week counts
+    let week_ago = scan::now_secs() as i64 - 7 * 86_400;
+    crate::inventory::leftovers(state.engine.home(), &known, &state.engine.safety, week_ago)
+}
+
+#[tauri::command(async)]
+pub fn startup_items(state: State<'_, AppState>) -> Vec<crate::inventory::StartupItem> {
+    let plat = platform::current();
+    crate::inventory::startup_items(state.engine.home(), plat.launch_defs(), &state.engine.sys.processes())
+}
+
+#[tauri::command(async)]
+pub fn open_login_items() -> Result<(), String> {
+    platform::current().open_login_items_settings().map_err(|e| e.to_string())
 }
 
 /// Every rule in the registry, for the Settings list.

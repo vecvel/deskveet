@@ -2,6 +2,7 @@
 //! by dropping in another module and changing the `Current` alias.
 
 use serde::Serialize;
+use std::collections::HashSet;
 use std::io;
 use std::path::{Path, PathBuf};
 
@@ -102,6 +103,27 @@ pub trait Platform: Send + Sync {
     fn choose_from_list(&self, _title: &str, _prompt: &str, _items: &[String], _ok: &str) -> Option<Vec<String>> {
         None
     }
+    /// Apps installed where people install them (Applications folders), with their ids and versions.
+    fn installed_apps(&self) -> Vec<Bundle> {
+        Vec::new()
+    }
+    /// The bundle ids of every app the system knows about anywhere (including helper apps inside
+    /// other apps). Used to tell whether an app's leftover data still has an app.
+    fn known_bundle_ids(&self) -> HashSet<String> {
+        HashSet::new()
+    }
+    /// Launch agents and daemons defined in the standard folders.
+    fn launch_defs(&self) -> Vec<LaunchDef> {
+        Vec::new()
+    }
+    /// Open the system page where login items and background items are turned on or off.
+    fn open_login_items_settings(&self) -> io::Result<()> {
+        Err(io::ErrorKind::Unsupported.into())
+    }
+    /// When each file was last opened, as far as the system knows (unix seconds); same order as `paths`.
+    fn last_used(&self, paths: &[PathBuf]) -> Vec<Option<i64>> {
+        vec![None; paths.len()]
+    }
     /// Put the computer to sleep now.
     fn sleep_now(&self) -> io::Result<()> {
         Err(io::ErrorKind::Unsupported.into())
@@ -143,6 +165,26 @@ pub trait Platform: Send + Sync {
 pub struct Disk {
     pub name: String,
     pub path: PathBuf,
+}
+
+/// An app bundle on disk.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Bundle {
+    pub path: PathBuf,
+    pub bundle_id: String,
+    pub version: String,
+}
+
+/// A launch agent or daemon definition (a property list in a LaunchAgents or LaunchDaemons folder).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct LaunchDef {
+    pub plist: PathBuf,
+    pub label: String,
+    /// The program it starts (first argument), if it names one.
+    pub program: Option<String>,
+    pub run_at_load: bool,
+    pub keep_alive: bool,
+    pub disabled: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]

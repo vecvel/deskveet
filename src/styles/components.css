@@ -265,6 +265,9 @@ input.num::-webkit-inner-spin-button, input.num::-webkit-outer-spin-button { -we
 .tbl.pr col:nth-child(2) { width: 88px; } .tbl.pr col:nth-child(3) { width: 84px; }
 .tbl.pr col:nth-child(4) { width: 66px; } .tbl.pr col:nth-child(5) { width: 176px; }
 .tbl.st col:nth-child(2) { width: 112px; } .tbl.st col:nth-child(3) { width: 112px; } .tbl.st col:nth-child(4) { width: 152px; }
+/* large files: file, size, modified, last opened, actions */
+.tbl.lf td { padding: 7px 10px; } .tbl.lf td.act { white-space: nowrap; } .tbl.lf .nm { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tbl.lf col:nth-child(2) { width: 96px; } .tbl.lf col:nth-child(3) { width: 112px; } .tbl.lf col:nth-child(4) { width: 112px; } .tbl.lf col:nth-child(5) { width: 112px; }
 
 /* apps */
 .tbl.ap col:nth-child(1) { width: 40px; } .tbl.ap col:nth-child(3) { width: 96px; } .tbl.ap col:nth-child(4) { width: 72px; }
@@ -272,6 +275,16 @@ input.num::-webkit-inner-spin-button, input.num::-webkit-outer-spin-button { -we
 .tbl td.ck { padding-right: 0; }
 .app-ico { width: 28px; height: 28px; flex: none; border-radius: 7px; }
 .app-ico.none { display: inline-flex; align-items: center; justify-content: center; background: var(--panel2); color: var(--text-2); font-weight: 600; }
+/* Apps: installed apps (app, storage, last opened, actions) and startup items (item, for, status, actions) */
+.tbl.ia col:nth-child(2) { width: 112px; } .tbl.ia col:nth-child(3) { width: 120px; } .tbl.ia col:nth-child(4) { width: 168px; }
+.tbl.su col:nth-child(2) { width: 124px; } .tbl.su col:nth-child(3) { width: 210px; } .tbl.su col:nth-child(4) { width: 56px; }
+.tbl.ia td, .tbl.su td { padding: 8px 10px; } .tbl.ia td.act, .tbl.su td.act { white-space: nowrap; }
+.ok-text { color: var(--ok); }
+/* a card whose rows run edge to edge, each with its own padding */
+.card.flush { padding: 0; overflow: hidden; }
+.card.flush > .rule-row { padding: var(--sp-3) var(--sp-4); align-items: center; }
+.card.flush > .rule-row:first-child { border-top: 0; }
+.btns .sp { flex: 1; }
 
 /* settings: rules */
 .disclose { display: flex; align-items: flex-start; gap: var(--sp-2); width: 100%; background: none; border: 0; padding: 0; cursor: pointer; text-align: left; }
