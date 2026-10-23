@@ -45,6 +45,8 @@
   /* every single-line control (buttons, search, segmented, text fields, selects) is one of two heights */
   --h-control: 34px; --h-control-sm: 26px;
   --side-w: 188px;
+  /* the page's inset from the window edge: left, right and above the header */
+  --page-pad: 22px;
   --dialog-max: calc(100vw - var(--side-w) - 2 * var(--sp-5));
   /* motion */
   --reveal: .5s;
