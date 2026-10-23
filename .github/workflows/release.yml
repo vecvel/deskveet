@@ -89,11 +89,20 @@ jobs:
           scripts/build.sh
 
       - name: Package
+        env:
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
         run: |
           BUNDLE=src-tauri/target/universal-apple-darwin/release/bundle
           VERSION=${TAG#v}
           mkdir -p out
           cp "$BUNDLE"/dmg/*.dmg "out/Deskveet-$VERSION-universal.dmg"
+          # the app inside is notarised by the build; the disk image needs its own ticket
+          if [ "$HAS_API_KEY" = "true" ]; then
+            xcrun notarytool submit "out/Deskveet-$VERSION-universal.dmg" --key "$APPLE_API_KEY_PATH" \
+              --key-id "$APPLE_API_KEY_ID" --issuer "$APPLE_API_ISSUER" --wait
+            xcrun stapler staple "out/Deskveet-$VERSION-universal.dmg"
+          fi
           ditto -c -k --keepParent "$BUNDLE/macos/Deskveet.app" "out/Deskveet-$VERSION-universal.app.zip"
           (cd out && shasum -a 256 * > SHA256SUMS.txt)
           ls -l out
