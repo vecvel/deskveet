@@ -49,8 +49,6 @@ pub struct AppState {
     pub live: Arc<crate::watch::LiveWatch>,
     /// The window is on screen (live updates every few seconds instead of every 10 minutes).
     pub ui_active: AtomicBool,
-    /// Menu-bar status lines, updated by the tracker while the menu-bar item exists.
-    pub tray_lines: Mutex<Option<(tauri::menu::MenuItem<tauri::Wry>, tauri::menu::MenuItem<tauri::Wry>)>>,
 }
 
 fn ui_path() -> PathBuf {
@@ -90,7 +88,6 @@ impl AppState {
             tracking: Arc::new(crate::schedule::Store::load(platform::data_dir().join("tracking.json"))),
             live: Arc::new(Default::default()),
             ui_active: AtomicBool::new(true),
-            tray_lines: Mutex::new(None),
             app_icons: Mutex::new(Default::default()),
             app_sizes: Arc::new(Default::default()),
             ui: Mutex::new(std::fs::read(ui_path()).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default()),
@@ -584,9 +581,15 @@ pub fn ui_get_all(state: State<'_, AppState>) -> std::collections::HashMap<Strin
 
 #[tauri::command(async)]
 pub fn ui_set(state: State<'_, AppState>, key: String, value: serde_json::Value) {
+    ui_put(&state, &key, value);
+}
+
+/// Store one UI preference and write the file (also used by the menu bar, which has no webview).
+pub fn ui_put(state: &AppState, key: &str, value: serde_json::Value) {
     if key.len() > 64 || !key.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-')) {
         return;
     }
+    let key = key.to_string();
     let mut ui = state.ui.lock().unwrap();
     let rules_changed = key == "rules.disabled";
     ui.insert(key, value);
@@ -967,7 +970,7 @@ pub fn start_tracker(app: AppHandle) {
             let st = app.state::<AppState>();
             let now = scan::now_secs();
             run_due_schedules(&app, &st, now);
-            refresh_tray_lines(&st, now);
+            crate::tray::refresh(&app);
             if now.saturating_sub(last_alert_check) >= ALERT_EVERY {
                 last_alert_check = now;
                 check_alerts(&st, now);
@@ -1157,29 +1160,3 @@ pub fn background_set(app: AppHandle, state: State<'_, AppState>, menubar: Optio
     Ok(Background { menubar: menubar_on(&state), login, login_needs_approval: approval, watched_rules: state.live.watched_rules() })
 }
 
-/// Update the menu-bar lines (free space, memory pressure, next scheduled clean).
-pub fn refresh_tray_lines(st: &AppState, now: u64) {
-    let lines = st.tray_lines.lock().unwrap().clone();
-    let Some((status, next)) = lines else { return };
-    let home = st.engine.home().to_path_buf();
-    let free = crate::fsutil::free_bytes(&home);
-    let pressure = st.mon.lock().unwrap().plat().memory_extra().map(|m| format!("{:?}", m.pressure)).unwrap_or_default();
-    let _ = status.set_text(format!("{} free  \u{00b7}  Memory: {}", bytes_h(free), pressure));
-    let cfg = st.tracking.cfg.lock().unwrap().clone();
-    let reg = st.engine.registry();
-    let soonest = cfg
-        .schedules
-        .iter()
-        .map(|(id, s)| {
-            let next = crate::schedule::last_due(s, now) + if s.every == crate::schedule::Every::Daily { DAY } else { 7 * DAY };
-            (next, reg.get(id).map(|r| r.name.clone()).unwrap_or_default())
-        })
-        .min_by_key(|(t, _)| *t);
-    let _ = next.set_text(match soonest {
-        Some((t, name)) => {
-            let l = crate::schedule::local(t);
-            format!("Next clean: {name}, {:02}/{:02} {:02}:00", l.day, l.month, l.hour)
-        }
-        None => "No scheduled cleaning".into(),
-    });
-}

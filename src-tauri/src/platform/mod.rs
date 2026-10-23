@@ -98,6 +98,34 @@ pub trait Platform: Send + Sync {
     fn confirm(&self, _title: &str, _message: &str, _ok: &str) -> bool {
         false
     }
+    /// Ask the person to pick any number of `items` (none is fine). `None` when cancelled.
+    fn choose_from_list(&self, _title: &str, _prompt: &str, _items: &[String], _ok: &str) -> Option<Vec<String>> {
+        None
+    }
+    /// Put the computer to sleep now.
+    fn sleep_now(&self) -> io::Result<()> {
+        Err(io::ErrorKind::Unsupported.into())
+    }
+    /// Lock the screen now.
+    fn lock_screen(&self) -> io::Result<()> {
+        Err(io::ErrorKind::Unsupported.into())
+    }
+    /// Restart or shut down the way the system menu does (apps are asked to quit and can save).
+    fn power(&self, _what: Power) -> Result<(), String> {
+        Err("Not supported on this system".into())
+    }
+    /// Disks that can be ejected right now; never the start-up disk.
+    fn ejectable_disks(&self) -> Vec<Disk> {
+        Vec::new()
+    }
+    fn eject(&self, _disk: &Disk) -> Result<(), String> {
+        Err("Not supported on this system".into())
+    }
+    /// Keep the computer (and optionally the display) awake until the returned process ends: after
+    /// `secs` when given, or when it is killed. It also ends when this app exits.
+    fn keep_awake(&self, _display: bool, _secs: Option<u64>) -> io::Result<std::process::Child> {
+        Err(io::ErrorKind::Unsupported.into())
+    }
     /// Open the system settings page where notifications for this app are turned on or off.
     fn open_notification_settings(&self) -> io::Result<()> {
         Ok(())
@@ -110,6 +138,19 @@ pub trait Platform: Send + Sync {
 }
 
 /// A regular (Dock) application that is running right now.
+/// A disk that can be ejected (external drive or mounted disk image).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Disk {
+    pub name: String,
+    pub path: PathBuf,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Power {
+    Restart,
+    ShutDown,
+}
+
 #[derive(Clone, Debug)]
 pub struct RunningApp {
     pub pid: u32,

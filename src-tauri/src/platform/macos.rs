@@ -1,4 +1,4 @@
-use super::{Apps, MemExtra, Platform, Pressure, ProcFacts, ProcessInfo, RunningApp};
+use super::{Apps, Disk, MemExtra, Platform, Power, Pressure, ProcFacts, ProcessInfo, RunningApp};
 use std::ffi::{c_void, CString};
 use std::io;
 use std::os::unix::ffi::OsStrExt;
@@ -374,6 +374,112 @@ impl Platform for Mac {
         // Cancel exits with an error; only the ok button returns normally.
         Command::new("/usr/bin/osascript").args(["-e", &script]).stderr(Stdio::null()).output()
             .is_ok_and(|o| o.status.success() && String::from_utf8_lossy(&o.stdout).contains(&format!("button returned:{}", q(ok))))
+    }
+
+    fn choose_from_list(&self, title: &str, prompt: &str, items: &[String], ok: &str) -> Option<Vec<String>> {
+        // Values travel as arguments, so names need no escaping. Returns one chosen item per line.
+        const SCRIPT: &str = r#"on run argv
+set theTitle to item 1 of argv
+set thePrompt to item 2 of argv
+set theOk to item 3 of argv
+set theItems to items 4 thru -1 of argv
+set picked to choose from list theItems with title theTitle with prompt thePrompt OK button name theOk cancel button name "Cancel" with multiple selections allowed and empty selection allowed
+if picked is false then return "__cancelled__"
+set AppleScript's text item delimiters to linefeed
+return picked as text
+end run"#;
+        let out = Command::new("/usr/bin/osascript").arg("-e").arg(SCRIPT).args([title, prompt, ok]).args(items).stderr(Stdio::null()).output().ok()?;
+        let text = String::from_utf8_lossy(&out.stdout).trim_end_matches('\n').to_string();
+        if !out.status.success() || text == "__cancelled__" {
+            return None;
+        }
+        Some(text.lines().filter(|l| !l.is_empty()).map(String::from).collect())
+    }
+
+    fn sleep_now(&self) -> io::Result<()> {
+        Command::new("/usr/bin/pmset").arg("sleepnow").stdout(Stdio::null()).stderr(Stdio::null()).status().map(|_| ())
+    }
+
+    fn lock_screen(&self) -> io::Result<()> {
+        // The same call the Lock Screen menu item uses; falls back to turning the display off, which locks
+        // when "require password after sleep" is on.
+        unsafe {
+            let lib = libc::dlopen(c"/System/Library/PrivateFrameworks/login.framework/Versions/Current/login".as_ptr(), libc::RTLD_LAZY);
+            if !lib.is_null() {
+                let f = libc::dlsym(lib, c"SACLockScreenImmediate".as_ptr());
+                if !f.is_null() {
+                    let lock: extern "C" fn() -> i32 = std::mem::transmute(f);
+                    lock();
+                    return Ok(());
+                }
+            }
+        }
+        Command::new("/usr/bin/pmset").arg("displaysleepnow").stdout(Stdio::null()).stderr(Stdio::null()).status().map(|_| ())
+    }
+
+    fn power(&self, what: Power) -> Result<(), String> {
+        let verb = match what {
+            Power::Restart => "restart",
+            Power::ShutDown => "shut down",
+        };
+        let out = Command::new("/usr/bin/osascript")
+            .args(["-e", &format!("tell application \"System Events\" to {verb}")])
+            .output()
+            .map_err(|e| e.to_string())?;
+        if out.status.success() {
+            return Ok(());
+        }
+        let err = String::from_utf8_lossy(&out.stderr);
+        Err(if err.contains("-1743") || err.contains("Not authorized") || err.contains("not allowed") {
+            "Deskveet is not allowed to control System Events. Turn it on in System Settings, Privacy & Security, Automation.".into()
+        } else if err.contains("-128") {
+            "Cancelled by an app that has unsaved work.".into()
+        } else {
+            err.trim().to_string()
+        })
+    }
+
+    fn ejectable_disks(&self) -> Vec<Disk> {
+        let Ok(entries) = std::fs::read_dir("/Volumes") else { return Vec::new() };
+        let mut disks: Vec<Disk> = entries
+            .flatten()
+            .map(|e| e.path())
+            // the start-up disk appears in /Volumes as a link to "/"
+            .filter(|p| !std::fs::symlink_metadata(p).map(|m| m.file_type().is_symlink()).unwrap_or(true))
+            .filter(|p| {
+                let Ok(o) = Command::new("/usr/sbin/diskutil").arg("info").arg(p).stderr(Stdio::null()).output() else { return false };
+                let info = String::from_utf8_lossy(&o.stdout);
+                let field = |k: &str| info.lines().find_map(|l| l.trim().strip_prefix(k).map(|v| v.trim().to_string())).unwrap_or_default();
+                o.status.success()
+                    && field("Mount Point:") == p.to_string_lossy()
+                    && (field("Ejectable:") == "Yes" || field("Protocol:") == "Disk Image" || field("Device Location:") == "External")
+            })
+            .map(|p| Disk { name: p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(), path: p })
+            .collect();
+        disks.sort_by(|a, b| a.name.cmp(&b.name));
+        disks
+    }
+
+    fn eject(&self, disk: &Disk) -> Result<(), String> {
+        let out = Command::new("/usr/sbin/diskutil").arg("eject").arg(&disk.path).output().map_err(|e| e.to_string())?;
+        if out.status.success() {
+            return Ok(());
+        }
+        let msg = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
+        Err(if msg.contains("in use") || msg.contains("dissented") {
+            format!("{} is in use. Close the files on it and try again.", disk.name)
+        } else {
+            format!("{} could not be ejected.", disk.name)
+        })
+    }
+
+    fn keep_awake(&self, display: bool, secs: Option<u64>) -> io::Result<std::process::Child> {
+        let mut cmd = Command::new("/usr/bin/caffeinate");
+        cmd.arg(if display { "-di" } else { "-i" }).args(["-w", &std::process::id().to_string()]);
+        if let Some(s) = secs {
+            cmd.args(["-t", &s.to_string()]);
+        }
+        cmd.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn()
     }
 
     fn open_notification_settings(&self) -> io::Result<()> {
