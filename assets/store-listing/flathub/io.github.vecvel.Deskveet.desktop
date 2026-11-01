@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Deskveet
+Comment=See where your disk space went and clean what is safe to clean
+Exec=deskveet
+Icon=io.github.vecvel.Deskveet
+Terminal=false
+Categories=System;Utility;
+Keywords=disk;cleaner;storage;cache;duplicates;
+StartupWMClass=deskveet

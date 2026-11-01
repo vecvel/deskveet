@@ -1,0 +1,27 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Deskveet",
+        "width": 960,
+        "height": 640,
+        "minWidth": 900,
+        "minHeight": 600,
+        "center": true,
+        "decorations": true,
+        "backgroundColor": "#1c1b19"
+      }
+    ]
+  },
+  "bundle": {
+    "targets": ["nsis"],
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser",
+        "displayLanguageSelector": false
+      }
+    }
+  }
+}

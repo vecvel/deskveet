@@ -1,0 +1,483 @@
+# Deskveet rule registry — Linux
+#
+# Same format as rules/macos.toml (see the field reference there). `~` is the home folder. The XDG folders
+# (cache, config, data) and the folders tools let users move are locations, read from the environment first.
+#
+# Nothing here runs as root. Rules for system folders (the package cache, the systemd journal) only show the
+# command to run.
+
+schema_version = 1
+rules_version = "1.0.0"
+
+[[location]]
+id = "cache"
+name = "Cache folder"
+env = ["XDG_CACHE_HOME"]
+default = "~/.cache"
+
+[[location]]
+id = "config"
+name = "Config folder"
+env = ["XDG_CONFIG_HOME"]
+default = "~/.config"
+
+[[location]]
+id = "data"
+name = "Data folder"
+env = ["XDG_DATA_HOME"]
+default = "~/.local/share"
+
+[[location]]
+id = "npm_cache"
+name = "npm cache"
+env = ["npm_config_cache"]
+default = "~/.npm"
+
+[[location]]
+id = "yarn_cache"
+name = "Yarn cache"
+env = ["YARN_CACHE_FOLDER", "XDG_CACHE_HOME/yarn"]
+default = "~/.cache/yarn"
+
+[[location]]
+id = "pnpm_store"
+name = "pnpm store"
+env = ["XDG_DATA_HOME/pnpm/store"]
+default = "~/.local/share/pnpm/store"
+
+[[location]]
+id = "pip_cache"
+name = "pip cache"
+env = ["PIP_CACHE_DIR", "XDG_CACHE_HOME/pip"]
+default = "~/.cache/pip"
+
+[[location]]
+id = "gradle_home"
+name = "Gradle"
+env = ["GRADLE_USER_HOME"]
+default = "~/.gradle"
+
+[[location]]
+id = "cargo_home"
+name = "Cargo"
+env = ["CARGO_HOME"]
+default = "~/.cargo"
+
+[[location]]
+id = "pub_cache"
+name = "Dart and Flutter packages"
+env = ["PUB_CACHE"]
+default = "~/.pub-cache"
+
+[[location]]
+id = "go_cache"
+name = "Go build cache"
+cmd = ["go", "env", "GOCACHE"]
+env = ["GOCACHE", "XDG_CACHE_HOME/go-build"]
+default = "~/.cache/go-build"
+
+[[location]]
+id = "android_sdk"
+name = "Android SDK"
+env = ["ANDROID_HOME", "ANDROID_SDK_ROOT"]
+default = "~/Android/Sdk"
+
+[[location]]
+id = "android_avd"
+name = "Android virtual devices"
+env = ["ANDROID_AVD_HOME", "ANDROID_USER_HOME/avd"]
+default = "~/.android/avd"
+
+# ───────────────────────────── System ─────────────────────────────
+
+[[rule]]
+id = "system.thumbnails"
+name = "Thumbnail cache"
+category = "System"
+paths = ["{cache}/thumbnails/*"]
+risk = "safe"
+description = "Deletes the file manager's cached thumbnails. Folders with many pictures show placeholders until they are drawn again."
+regenerates = "Drawn again by the file manager as you browse."
+method = "trash"
+
+[[rule]]
+id = "system.trash"
+name = "Trash"
+category = "System"
+kind = "dynamic"
+dynamic = "trash"
+paths = []
+risk = "caution"
+description = "Permanently deletes everything in the Trash. This cannot be undone."
+regenerates = "Not recoverable."
+method = "erase"
+
+[[rule]]
+id = "system.flatpak_unused"
+name = "Unused Flatpak runtimes"
+category = "System"
+kind = "tool"
+paths = []
+detect = "command -v flatpak"
+risk = "review"
+description = "`flatpak uninstall --unused` removes runtimes and extensions that no installed app of yours uses."
+regenerates = "Installed again when an app that needs them is installed."
+method = "tool"
+tool = ["flatpak", "uninstall", "--unused", "--user", "--noninteractive"]
+busy = ["flatpak"]
+
+[[rule]]
+id = "system.apt_cache"
+name = "Downloaded packages"
+category = "System"
+kind = "tool"
+paths = []
+detect = "command -v apt-get"
+risk = "safe"
+description = "`apt-get clean` deletes the package files kept after installing updates. Installed software is not affected."
+regenerates = "Downloaded again only if a package is reinstalled."
+method = "tool"
+tool = ["sudo", "apt-get", "clean"]
+needs_admin = true
+
+[[rule]]
+id = "system.journal"
+name = "Old system logs"
+category = "System"
+kind = "tool"
+paths = []
+detect = "command -v journalctl"
+risk = "safe"
+description = "`journalctl --vacuum-time=14d` deletes system log entries older than two weeks."
+regenerates = "New entries are written as the system runs."
+method = "tool"
+tool = ["sudo", "journalctl", "--vacuum-time=14d"]
+needs_admin = true
+
+# ───────────────────────────── Browsers ─────────────────────────────
+
+[[rule]]
+id = "browser.chrome"
+name = "Chrome cache"
+category = "Browsers"
+paths = ["{cache}/google-chrome/*/Cache/*", "{cache}/google-chrome/*/Code Cache/*"]
+risk = "safe"
+description = "Deletes cached web pages, scripts and images. Logins, history and bookmarks are kept."
+regenerates = "Downloaded again as you browse; pages may load slower at first."
+method = "trash"
+busy = ["chrome"]
+
+[[rule]]
+id = "browser.chromium"
+name = "Chromium cache"
+category = "Browsers"
+paths = ["{cache}/chromium/*/Cache/*", "{cache}/chromium/*/Code Cache/*"]
+risk = "safe"
+description = "Deletes cached web pages, scripts and images. Logins, history and bookmarks are kept."
+regenerates = "Downloaded again as you browse; pages may load slower at first."
+method = "trash"
+busy = ["chromium", "chromium-browser"]
+
+[[rule]]
+id = "browser.edge"
+name = "Edge cache"
+category = "Browsers"
+paths = ["{cache}/microsoft-edge/*/Cache/*", "{cache}/microsoft-edge/*/Code Cache/*"]
+risk = "safe"
+description = "Deletes cached web pages, scripts and images. Logins, history and bookmarks are kept."
+regenerates = "Downloaded again as you browse; pages may load slower at first."
+method = "trash"
+busy = ["msedge"]
+
+[[rule]]
+id = "browser.brave"
+name = "Brave cache"
+category = "Browsers"
+paths = ["{cache}/BraveSoftware/Brave-Browser/*/Cache/*", "{cache}/BraveSoftware/Brave-Browser/*/Code Cache/*"]
+risk = "safe"
+description = "Deletes cached web pages, scripts and images. Logins, history and bookmarks are kept."
+regenerates = "Downloaded again as you browse; pages may load slower at first."
+method = "trash"
+busy = ["brave"]
+
+[[rule]]
+id = "browser.firefox"
+name = "Firefox cache"
+category = "Browsers"
+paths = ["{cache}/mozilla/firefox/*/cache2/*"]
+risk = "safe"
+description = "Deletes cached web pages, scripts and images. Logins, history and bookmarks are kept."
+regenerates = "Downloaded again as you browse; pages may load slower at first."
+method = "trash"
+busy = ["firefox"]
+
+# ───────────────────────────── App caches ─────────────────────────────
+
+[[rule]]
+id = "app.vscode"
+name = "VS Code caches"
+category = "App caches"
+paths = ["{config}/Code/Cache/*", "{config}/Code/CachedData/*", "{config}/Code/CachedExtensionVSIXs/*", "{config}/Code/Code Cache/*"]
+risk = "safe"
+description = "Deletes VS Code's caches and old downloaded extension packages. Settings and extensions are kept."
+regenerates = "Rebuilt the next time VS Code starts."
+method = "trash"
+busy = ["code"]
+
+[[rule]]
+id = "app.discord"
+name = "Discord cache"
+category = "App caches"
+paths = ["{config}/discord/Cache/*", "{config}/discord/Code Cache/*"]
+risk = "safe"
+description = "Deletes cached images and media. Messages and settings are kept."
+regenerates = "Downloaded again as you use Discord."
+method = "trash"
+busy = ["Discord", "discord"]
+
+[[rule]]
+id = "app.slack"
+name = "Slack cache"
+category = "App caches"
+paths = ["{config}/Slack/Cache/*", "{config}/Slack/Code Cache/*"]
+risk = "safe"
+description = "Deletes cached images and files. Messages and settings are kept."
+regenerates = "Downloaded again as you use Slack."
+method = "trash"
+busy = ["slack"]
+
+[[rule]]
+id = "app.spotify"
+name = "Spotify cache"
+category = "App caches"
+paths = ["{cache}/spotify/Data/*"]
+risk = "review"
+description = "Deletes streamed music kept for faster playback. Downloaded playlists may need downloading again."
+regenerates = "Streamed again as you listen."
+method = "trash"
+busy = ["spotify"]
+
+[[rule]]
+id = "app.jetbrains"
+name = "JetBrains IDE caches"
+category = "App caches"
+paths = ["{cache}/JetBrains/*"]
+risk = "review"
+description = "Deletes the indexes and caches of JetBrains IDEs (IntelliJ IDEA, PyCharm, Android Studio). Projects and settings are kept."
+regenerates = "Rebuilt by indexing the next time a project opens, which takes a while."
+method = "trash"
+busy = ["idea", "pycharm", "studio", "clion", "goland", "webstorm"]
+
+# ───────────────────────────── Developer ─────────────────────────────
+
+[[rule]]
+id = "dev.android_system_images"
+name = "Android system images"
+category = "Developer"
+paths = ["{android_sdk}/system-images/*"]
+risk = "review"
+description = "Deletes downloaded emulator system images. Emulators that use them stop booting until the image is downloaded again."
+regenerates = "Download again from the Android Studio SDK Manager."
+method = "trash"
+busy = ["studio", "emulator", "qemu-system-x86_64"]
+
+[[rule]]
+id = "dev.android_avds"
+name = "Android emulators"
+category = "Developer"
+paths = ["{android_avd}/*"]
+risk = "caution"
+description = "Deletes emulator devices with everything installed on them."
+regenerates = "Create them again in the Device Manager; their data is lost."
+method = "trash"
+busy = ["emulator", "qemu-system-x86_64"]
+
+[[rule]]
+id = "dev.gradle_caches"
+name = "Gradle caches"
+category = "Developer"
+paths = ["{gradle_home}/caches/*", "{gradle_home}/wrapper/dists/*"]
+risk = "safe"
+description = "Deletes downloaded dependencies and Gradle versions. The next build downloads what it needs."
+regenerates = "Downloaded again by the next build (needs a network connection)."
+method = "trash"
+busy = ["GradleDaemon", "studio"]
+
+[[rule]]
+id = "dev.go_cache"
+name = "Go build cache"
+category = "Developer"
+paths = ["{go_cache}/*"]
+risk = "safe"
+description = "Deletes compiled Go packages. The next build compiles them again."
+regenerates = "Rebuilt by `go build`."
+method = "trash"
+busy = ["go"]
+# ───────────────────────────── Package managers ─────────────────────────────
+
+[[rule]]
+id = "pkg.npm"
+name = "npm cache"
+category = "Package managers"
+paths = ["{npm_cache}/_cacache/*"]
+risk = "safe"
+description = "Deletes npm's download cache. Installed projects are not affected."
+regenerates = "Filled again by the next `npm install` (needs a network connection)."
+method = "trash"
+busy = ["npm", "node"]
+
+[[rule]]
+id = "pkg.yarn"
+name = "Yarn cache"
+category = "Package managers"
+paths = ["{yarn_cache}/*"]
+risk = "safe"
+description = "Deletes Yarn's download cache. Installed projects are not affected."
+regenerates = "Filled again by the next `yarn install` (needs a network connection)."
+method = "trash"
+busy = ["yarn", "node"]
+
+[[rule]]
+id = "pkg.pnpm"
+name = "pnpm store"
+category = "Package managers"
+paths = ["{pnpm_store}/*"]
+risk = "review"
+description = "Deletes pnpm's shared package store. Projects installed with pnpm need `pnpm install` again."
+regenerates = "`pnpm install` in each project (needs a network connection)."
+method = "trash"
+busy = ["pnpm", "node"]
+
+[[rule]]
+id = "pkg.pip"
+name = "pip cache"
+category = "Package managers"
+paths = ["{pip_cache}/*"]
+risk = "safe"
+description = "Deletes pip's download and wheel cache. Installed packages are not affected."
+regenerates = "Filled again by the next `pip install` (needs a network connection)."
+method = "trash"
+busy = ["pip", "python"]
+
+[[rule]]
+id = "pkg.cargo"
+name = "Cargo download cache"
+category = "Package managers"
+paths = ["{cargo_home}/registry/cache/*", "{cargo_home}/git/db/*"]
+risk = "safe"
+description = "Deletes downloaded crate archives and git checkouts. Unpacked sources and installed tools are kept."
+regenerates = "Downloaded again by the next `cargo build` that needs them."
+method = "trash"
+busy = ["cargo"]
+
+[[rule]]
+id = "pkg.pub"
+name = "Dart and Flutter packages"
+category = "Package managers"
+paths = ["{pub_cache}/hosted/*", "{pub_cache}/git/*"]
+risk = "review"
+description = "Deletes downloaded Dart and Flutter packages. Each project needs `flutter pub get` again."
+regenerates = "`flutter pub get` or `dart pub get` (needs a network connection)."
+method = "trash"
+busy = ["dart", "flutter"]
+
+# ───────────────────────────── Project build artifacts ─────────────────────────────
+# Found by scanning folders chosen by the user. An artifact folder only counts when a marker file
+# sits next to it, so a random folder named `build` is never matched.
+
+[[rule]]
+id = "artifact.node_modules"
+name = "node_modules"
+category = "Project build artifacts"
+kind = "artifact"
+dir_name = "node_modules"
+markers = ["package.json"]
+risk = "safe"
+description = "Deletes installed dependencies for the project."
+regenerates = "`npm install` / `pnpm install` / `yarn` (needs network unless a cache exists)."
+method = "trash"
+stale_days = 60
+busy = ["node", "npm", "pnpm", "yarn"]
+
+[[rule]]
+id = "artifact.rust_target"
+name = "Rust target/"
+category = "Project build artifacts"
+kind = "artifact"
+dir_name = "target"
+markers = ["Cargo.toml"]
+risk = "safe"
+description = "Deletes compiled output and incremental build state."
+regenerates = "`cargo build` (full rebuild)."
+method = "trash"
+stale_days = 30
+busy = ["cargo", "rustc"]
+
+[[rule]]
+id = "artifact.dart_tool"
+name = ".dart_tool"
+category = "Project build artifacts"
+kind = "artifact"
+dir_name = ".dart_tool"
+markers = ["pubspec.yaml"]
+risk = "safe"
+description = "Deletes Dart tooling state and package config."
+regenerates = "`flutter pub get`."
+method = "trash"
+stale_days = 30
+busy = ["dart", "flutter"]
+
+[[rule]]
+id = "artifact.flutter_build"
+name = "Flutter build/"
+category = "Project build artifacts"
+kind = "artifact"
+dir_name = "build"
+markers = ["pubspec.yaml"]
+risk = "safe"
+description = "Deletes Flutter build output for the project."
+regenerates = "`flutter build` / `flutter run`."
+method = "trash"
+stale_days = 30
+busy = ["dart", "flutter"]
+
+[[rule]]
+id = "artifact.gradle"
+name = ".gradle"
+category = "Project build artifacts"
+kind = "artifact"
+dir_name = ".gradle"
+markers = ["build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts"]
+risk = "safe"
+description = "Deletes the project's Gradle state."
+regenerates = "Recreated by the next Gradle run."
+method = "trash"
+stale_days = 30
+busy = ["GradleDaemon", "studio"]
+
+[[rule]]
+id = "artifact.gradle_build"
+name = "Gradle build/"
+category = "Project build artifacts"
+kind = "artifact"
+dir_name = "build"
+markers = ["build.gradle", "build.gradle.kts"]
+risk = "safe"
+description = "Deletes compiled output of the Gradle project."
+regenerates = "`./gradlew build`."
+method = "trash"
+stale_days = 30
+busy = ["GradleDaemon", "studio"]
+
+[[rule]]
+id = "artifact.pycache"
+name = "__pycache__"
+category = "Project build artifacts"
+kind = "artifact"
+dir_name = "__pycache__"
+markers = []
+risk = "safe"
+description = "Deletes Python bytecode caches."
+regenerates = "Written again whenever the modules are imported."
+method = "trash"
+stale_days = 0

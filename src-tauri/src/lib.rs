@@ -1,0 +1,167 @@
+pub mod apps;
+pub mod cleaner;
+pub mod commands;
+pub mod dupes;
+pub mod fsutil;
+pub mod history;
+pub mod inventory;
+pub mod linuxapps;
+pub mod locate;
+pub mod platform;
+pub mod rules;
+pub mod safety;
+pub mod scan;
+pub mod schedule;
+pub mod sys;
+pub mod sysmon;
+#[cfg(test)]
+pub mod testutil;
+pub mod tray;
+pub mod undo;
+pub mod updater;
+pub mod user_rules;
+pub mod watch;
+pub mod winapps;
+
+use tauri::{AppHandle, Manager, RunEvent, WebviewWindowBuilder, WindowEvent};
+
+/// Show the main window, rebuilding it from tauri.conf.json when it was released to save memory.
+pub fn show_main(app: &AppHandle) {
+    #[cfg(target_os = "macos")]
+    let _ = app.set_activation_policy(tauri::ActivationPolicy::Regular);
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.unminimize();
+        let _ = w.show();
+        let _ = w.set_focus();
+        return;
+    }
+    if let Some(cfg) = app.config().app.windows.first() {
+        if let Ok(b) = WebviewWindowBuilder::from_config(app, cfg) {
+            let _ = b.build();
+        }
+    }
+}
+
+pub fn run() {
+    #[cfg(windows)]
+    platform::windows::set_app_id();
+    let builder = tauri::Builder::default().plugin(tauri_plugin_updater::Builder::new().build());
+    #[cfg(any(windows, target_os = "linux"))]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _, _| show_main(app)));
+    let app = builder
+        .manage(commands::AppState::new())
+        .setup(|app| {
+            commands::start_tracker(app.handle().clone());
+            commands::start_live(app.handle().clone());
+            updater::start(app.handle().clone());
+            let on = app.state::<commands::AppState>().ui_get("bg.menubar").and_then(|v| v.as_bool()).unwrap_or(false);
+            if on {
+                let _ = tray::show(app.handle());
+            }
+            Ok(())
+        })
+        .invoke_handler(tauri::generate_handler![
+            commands::overview,
+            commands::processes,
+            commands::quit_process,
+            commands::reveal,
+            commands::open_path,
+            commands::quick_look,
+            commands::open_fda_settings,
+            commands::release_window,
+            commands::pick_folder,
+            commands::scan_start,
+            commands::scan_cancel,
+            commands::scan_status,
+            commands::scan_load_cached,
+            commands::scan_children,
+            commands::scan_clear_cache,
+            commands::large_files,
+            commands::app_uninstall_run,
+            commands::dupes_state,
+            commands::dupes_start,
+            commands::dupes_cancel,
+            commands::dupes_check,
+            commands::dupes_prune,
+            commands::cleanup_state,
+            commands::cleanup_scan,
+            commands::cleanup_cancel,
+            commands::cleanup_plan,
+            commands::cleanup_run,
+            commands::undo_list,
+            commands::undo_restore,
+            commands::undo_clear,
+            commands::open_trash,
+            commands::about,
+            commands::fda_status,
+            commands::apps_list,
+            commands::rules_list,
+            commands::locations_info,
+            commands::rules_status,
+            commands::rules_custom,
+            commands::tracking_get,
+            commands::alert_set,
+            commands::disk_alert_set,
+            commands::schedule_set,
+            commands::notify_test,
+            commands::ui_visible,
+            commands::background_get,
+            commands::background_set,
+            commands::rule_test,
+            commands::rule_save,
+            commands::rule_delete,
+            commands::rules_export,
+            commands::rules_import,
+            commands::locations_redetect,
+            commands::apps_quit,
+            commands::apps_installed,
+            commands::app_uninstall_items,
+            commands::app_leftovers,
+            commands::startup_items,
+            commands::open_login_items,
+            commands::ui_get_all,
+            commands::ui_set,
+            commands::artifact_state,
+            commands::artifact_scan,
+        ])
+        // A destroyed window means the WebKit helper processes are gone; drop our caches too.
+        .on_window_event(|w, e| {
+            match e {
+                // Windows and Linux: the close button quits unless the tray icon is there to bring the window back.
+                // (Closing the window to save memory destroys it instead, and the process stays.)
+                #[cfg(any(windows, target_os = "linux"))]
+                WindowEvent::CloseRequested { .. }
+                    if !w.app_handle().state::<commands::AppState>().ui_get("bg.menubar").and_then(|v| v.as_bool()).unwrap_or(false) =>
+                {
+                    w.app_handle().exit(0)
+                }
+                WindowEvent::Focused(f) => tray::window_changed(w.app_handle(), Some(*f)),
+                WindowEvent::Resized(_) => tray::window_changed(w.app_handle(), None), // minimise and restore
+                WindowEvent::Destroyed => tray::window_changed(w.app_handle(), Some(false)),
+                _ => {}
+            }
+            if matches!(e, WindowEvent::Destroyed) {
+                let app = w.app_handle();
+                let st = app.state::<commands::AppState>();
+                st.release_memory();
+                // In menu-bar mode the Dock icon goes away with the window.
+                #[cfg(target_os = "macos")]
+                if st.ui_get("bg.menubar").and_then(|v| v.as_bool()).unwrap_or(false) {
+                    let _ = app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+                }
+            }
+        })
+        .build(tauri::generate_context!())
+        .expect("failed to build Deskveet");
+
+    app.run(|app, event| {
+        match event {
+            // Closing the last window keeps the (tiny) process alive; Cmd+Q still quits.
+            RunEvent::ExitRequested { api, code, .. } if code.is_none() => api.prevent_exit(),
+            RunEvent::Exit => updater::on_exit(app),
+            #[cfg(target_os = "macos")]
+            RunEvent::Reopen { has_visible_windows, .. } if !has_visible_windows => show_main(app),
+            _ => {}
+        }
+    });
+}

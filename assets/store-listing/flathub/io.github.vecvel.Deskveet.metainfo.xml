@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- AppStream metadata for Flathub and the software centres that read it (GNOME Software, KDE Discover). -->
+<component type="desktop-application">
+  <id>io.github.vecvel.Deskveet</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>LicenseRef-proprietary</project_license>
+  <name>Deskveet</name>
+  <summary>Clean caches, keep control</summary>
+  <developer id="io.github.vecvel">
+    <name>vecvel</name>
+  </developer>
+  <description>
+    <p>Deskveet shows where your disk space went and cleans what is safe to clean.</p>
+    <p>Most full disks are full of things nobody chose to keep: build folders, package caches, browser caches,
+      thumbnails and the downloads tools leave behind. Deskveet knows where these live, measures them, and tells you
+      what each one is before anything is touched.</p>
+    <ul>
+      <li>See where your space went with a fast folder scan and a scrollable treemap</li>
+      <li>Rules for the cache folder, thumbnails, browsers, apps and developer tools such as Gradle, npm, Cargo and pip</li>
+      <li>Every rule says what you lose and how it comes back</li>
+      <li>Preview everything first; items go to the Trash, with an undo log and Restore</li>
+      <li>Find large old files and duplicate files by content</li>
+      <li>Remove Flatpak apps, find what removed apps left behind, and see what starts when you log in</li>
+      <li>System tray: clean safe caches, quit apps, keep awake, eject drives, lock, sleep, restart, shut down</li>
+    </ul>
+    <p>No accounts and no tracking. Its only connection is a daily check for updates, which you can turn off.</p>
+  </description>
+  <launchable type="desktop-id">io.github.vecvel.Deskveet.desktop</launchable>
+  <url type="homepage">https://github.com/vecvel/deskveet</url>
+  <url type="bugtracker">https://github.com/vecvel/deskveet/issues</url>
+  <url type="vcs-browser">https://github.com/vecvel/deskveet</url>
+  <categories>
+    <category>System</category>
+    <category>Utility</category>
+  </categories>
+  <keywords>
+    <keyword>disk</keyword>
+    <keyword>cleaner</keyword>
+    <keyword>storage</keyword>
+    <keyword>cache</keyword>
+    <keyword>duplicates</keyword>
+  </keywords>
+  <screenshots>
+    <screenshot type="default">
+      <caption>See where your space went</caption>
+      <image>https://raw.githubusercontent.com/vecvel/deskveet/main/assets/store-listing/desktop/screenshots-1920/01-storage.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Every rule says what happens</caption>
+      <image>https://raw.githubusercontent.com/vecvel/deskveet/main/assets/store-listing/desktop/screenshots-1920/02-rules.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>You see it first, then it is cleaned</caption>
+      <image>https://raw.githubusercontent.com/vecvel/deskveet/main/assets/store-listing/desktop/screenshots-1920/03-review.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Every clean can be put back</caption>
+      <image>https://raw.githubusercontent.com/vecvel/deskveet/main/assets/store-listing/desktop/screenshots-1920/04-undo.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Your computer at a glance</caption>
+      <image>https://raw.githubusercontent.com/vecvel/deskveet/main/assets/store-listing/desktop/screenshots-1920/05-overview.png</image>
+    </screenshot>
+  </screenshots>
+  <content_rating type="oars-1.1"/>
+  <supports>
+    <control>pointing</control>
+    <control>keyboard</control>
+  </supports>
+  <requires>
+    <display_length compare="ge">900</display_length>
+  </requires>
+  <releases>
+    <release version="1.0.0" date="2026-11-01">
+      <description><p>First release.</p></description>
+    </release>
+  </releases>
+</component>

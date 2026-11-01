@@ -1,0 +1,84 @@
+[package]
+name = "deskveet"
+version = "1.0.0"
+description = "Light, fast, privacy-first disk & system cleanup"
+edition = "2021"
+rust-version = "1.85"
+resolver = "3"
+publish = false
+
+[lib]
+name = "deskveet_lib"
+path = "src/lib.rs"
+
+[[bin]]
+name = "deskveet"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", default-features = false, features = [] }
+
+[dependencies]
+# Offline only: nothing below opens a socket. `custom-protocol` is added by `tauri build`.
+tauri = { version = "2", default-features = false, features = ["wry", "tray-icon", "image-png"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sysinfo = { version = "0.36", default-features = false, features = ["system", "disk", "user"] }
+libc = "0.2"
+rayon = "1"
+# Live sizes: macOS FSEvents (its default backend). Offline.
+notify = { version = "8", default-features = false, features = ["macos_fsevent"] }
+toml = { version = "1", default-features = false, features = ["parse", "display", "serde"] }
+glob = "0.3"
+# Updates: checks GitHub once a day and verifies each download's signature; the only network code in the app.
+# HTTPS through the system's own TLS (Security framework on macOS, SChannel on Windows).
+tauri-plugin-updater = { version = "2", default-features = false, features = ["native-tls"] }
+
+# Moving to the Trash: on macOS we call NSFileManager.trashItemAtURL ourselves (the same call the `trash`
+# crate makes) because it hands back the exact Trash path, which the undo log needs and which cannot be
+# discovered by listing ~/.Trash without Full Disk Access. Other platforms use the `trash` crate.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSError", "NSFileManager", "NSString", "NSURL", "NSArray", "NSData", "NSDictionary", "NSGeometry", "NSBundle"] }
+# Running apps (the Apps tab): NSWorkspace / NSRunningApplication, and their icons as small PNGs.
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "libc", "NSRunningApplication", "NSWorkspace", "NSImage", "NSImageRep", "NSBitmapImageRep", "NSGraphicsContext", "objc2-core-graphics"] }
+objc2-core-graphics = { version = "0.3", default-features = false, features = ["std", "CGImage"] }
+# Alerts and schedule summaries as macOS notifications.
+objc2-user-notifications = { version = "0.3", default-features = false, features = ["std", "bitflags", "block2", "UNUserNotificationCenter", "UNNotificationContent", "UNNotificationRequest", "UNNotificationTrigger", "UNError", "UNNotification", "UNNotificationSettings"] }
+block2 = "0.6"
+# Open at login (SMAppService).
+objc2-service-management = { version = "0.3", default-features = false, features = ["std", "SMAppService", "objc2", "objc2-foundation"] }
+
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+# On Windows it uses the shell's own Recycle Bin API through COM, which needs a threading model.
+trash = { version = "5", default-features = false, features = ["coinit_apartmentthreaded"] }
+
+# Windows system calls (file ids, free space, processes). Microsoft's own bindings; no network code.
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_System_IO", "Win32_System_Threading", "Win32_Security", "Win32_Security_Authorization", "Win32_System_SystemInformation", "Win32_System_ProcessStatus", "Win32_UI_WindowsAndMessaging", "Win32_System_Registry", "Win32_System_Power", "Win32_System_Shutdown"] }
+# COM and WinRT pieces: the standard file pickers and Windows notifications. Already in the tree through Tauri.
+windows = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Com", "Win32_UI_Shell", "Win32_UI_Shell_Common", "UI_Notifications", "Data_Xml_Dom"] }
+
+# Opening Deskveet again brings back the running copy (macOS does this by itself). Local only (a named
+# pipe on Windows, the session D-Bus on Linux).
+[target.'cfg(any(windows, target_os = "linux"))'.dependencies]
+tauri-plugin-single-instance = "2"
+
+[features]
+custom-protocol = ["tauri/custom-protocol"]
+
+[dev-dependencies]
+tempfile = "3"
+
+# Size/RAM first: this is the whole point of the app.
+[profile.release]
+opt-level = "z"
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = true
+debug = false
+incremental = false
+
+[profile.dev]
+debug = 0

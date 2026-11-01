@@ -1,0 +1,926 @@
+use super::{Apps, Bundle, Disk, LaunchDef, MemExtra, Platform, Power, Pressure, ProcFacts, ProcessInfo, RunningApp};
+use std::collections::HashSet;
+use std::ffi::{c_void, CString};
+use std::io;
+use std::os::unix::ffi::OsStrExt;
+use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
+
+#[derive(Default)]
+pub struct Mac;
+
+extern "C" {
+    fn malloc_zone_pressure_relief(zone: *mut c_void, goal: usize) -> usize;
+}
+
+extern "C" {
+    fn pthread_set_qos_class_self_np(qos_class: u32, relative_priority: i32) -> i32;
+}
+
+pub fn background_thread() {
+    const QOS_CLASS_UTILITY: u32 = 0x11;
+    // SAFETY: affects only the calling thread.
+    unsafe {
+        pthread_set_qos_class_self_np(QOS_CLASS_UTILITY, 0);
+    }
+}
+
+pub fn trim_memory() {
+    // SAFETY: a null zone means "all zones"; goal 0 means "as much as possible".
+    unsafe {
+        malloc_zone_pressure_relief(std::ptr::null_mut(), 0);
+    }
+}
+
+// ───────────────────────────── sysctl / mach ─────────────────────────────
+
+fn sysctl_raw<T: Copy + Default>(name: &str) -> Option<T> {
+    let cname = CString::new(name).ok()?;
+    let mut out = T::default();
+    let mut len = std::mem::size_of::<T>();
+    // SAFETY: `out` is a valid, writable T of `len` bytes; the name is NUL-terminated.
+    let rc = unsafe {
+        libc::sysctlbyname(cname.as_ptr(), &mut out as *mut T as *mut c_void, &mut len, std::ptr::null_mut(), 0)
+    };
+    (rc == 0).then_some(out)
+}
+
+/// `struct xsw_usage` from <sys/sysctl.h>.
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+struct XswUsage {
+    total: u64,
+    avail: u64,
+    used: u64,
+    pagesize: u32,
+    encrypted: u8,
+}
+
+/// `vm_statistics64` from <mach/vm_statistics.h> (38 ints).
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+struct VmStat64 {
+    free_count: u32,
+    active_count: u32,
+    inactive_count: u32,
+    wire_count: u32,
+    zero_fill_count: u64,
+    reactivations: u64,
+    pageins: u64,
+    pageouts: u64,
+    faults: u64,
+    cow_faults: u64,
+    lookups: u64,
+    hits: u64,
+    purges: u64,
+    purgeable_count: u32,
+    speculative_count: u32,
+    decompressions: u64,
+    compressions: u64,
+    swapins: u64,
+    swapouts: u64,
+    compressor_page_count: u32,
+    throttled_count: u32,
+    external_page_count: u32,
+    internal_page_count: u32,
+    total_uncompressed_pages_in_compressor: u64,
+}
+
+const HOST_VM_INFO64: i32 = 4;
+
+extern "C" {
+    fn mach_host_self() -> u32;
+    fn host_statistics64(host: u32, flavor: i32, out: *mut i32, count: *mut u32) -> i32;
+}
+
+fn vm_stats() -> Option<VmStat64> {
+    let mut s = VmStat64::default();
+    let mut count = (std::mem::size_of::<VmStat64>() / 4) as u32;
+    // SAFETY: `s` is a properly sized vm_statistics64 and `count` its size in ints.
+    let kr = unsafe { host_statistics64(mach_host_self(), HOST_VM_INFO64, &mut s as *mut _ as *mut i32, &mut count) };
+    (kr == 0).then_some(s)
+}
+
+/// Fallback when the mach call fails: parse `vm_stat`.
+fn vm_stats_from_cli() -> Option<VmStat64> {
+    let out = Command::new("/usr/bin/vm_stat").output().ok()?;
+    let text = String::from_utf8_lossy(&out.stdout);
+    let get = |key: &str| -> u32 {
+        text.lines()
+            .find(|l| l.starts_with(key))
+            .and_then(|l| l.split(':').nth(1))
+            .and_then(|v| v.trim().trim_end_matches('.').parse().ok())
+            .unwrap_or(0)
+    };
+    Some(VmStat64 {
+        wire_count: get("Pages wired down"),
+        purgeable_count: get("Pages purgeable"),
+        compressor_page_count: get("Pages occupied by compressor"),
+        // vm_stat reports "File-backed pages" (external) and "Anonymous pages" (internal).
+        external_page_count: get("File-backed pages"),
+        internal_page_count: get("Anonymous pages"),
+        ..Default::default()
+    })
+}
+
+// ───────────────────────────── CoreFoundation (purgeable space) ─────────────────────────────
+
+#[link(name = "CoreFoundation", kind = "framework")]
+extern "C" {
+    static kCFURLVolumeAvailableCapacityForImportantUsageKey: *const c_void;
+    fn CFURLCreateFromFileSystemRepresentation(alloc: *const c_void, buf: *const u8, len: isize, is_dir: u8) -> *const c_void;
+    fn CFURLCopyResourcePropertyForKey(url: *const c_void, key: *const c_void, value: *mut *const c_void, err: *mut *const c_void) -> u8;
+    fn CFNumberGetValue(n: *const c_void, ty: isize, out: *mut c_void) -> u8;
+    fn CFRelease(o: *const c_void);
+}
+
+fn cf_available_important(mount: &Path) -> Option<u64> {
+    let bytes = mount.as_os_str().as_bytes();
+    // SAFETY: standard CF create/copy/release pairing; all pointers are checked for null.
+    unsafe {
+        let url = CFURLCreateFromFileSystemRepresentation(std::ptr::null(), bytes.as_ptr(), bytes.len() as isize, 1);
+        if url.is_null() {
+            return None;
+        }
+        let mut value: *const c_void = std::ptr::null();
+        let mut err: *const c_void = std::ptr::null();
+        let ok = CFURLCopyResourcePropertyForKey(url, kCFURLVolumeAvailableCapacityForImportantUsageKey, &mut value, &mut err);
+        let mut result = None;
+        if ok != 0 && !value.is_null() {
+            let mut n: i64 = 0;
+            if CFNumberGetValue(value, 4 /* kCFNumberSInt64Type */, &mut n as *mut i64 as *mut c_void) != 0 && n >= 0 {
+                result = Some(n as u64);
+            }
+            CFRelease(value);
+        }
+        if !err.is_null() {
+            CFRelease(err);
+        }
+        CFRelease(url);
+        result
+    }
+}
+
+/// Spawn and reap in the background so finished helpers (qlmanage, open) never linger as zombies.
+fn spawn_reaped(cmd: &mut Command) -> io::Result<()> {
+    let mut child = cmd.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn()?;
+    std::thread::spawn(move || {
+        let _ = child.wait();
+    });
+    Ok(())
+}
+
+mod un {
+    //! macOS notifications through UNUserNotificationCenter.
+    use objc2::rc::Retained;
+    use objc2::runtime::{NSObject, NSObjectProtocol, ProtocolObject};
+    use objc2::{define_class, msg_send, AllocAnyThread};
+    use objc2_foundation::{NSError, NSString};
+    use objc2_user_notifications::{
+        UNAuthorizationOptions, UNAuthorizationStatus, UNMutableNotificationContent, UNNotification, UNNotificationPresentationOptions,
+        UNNotificationRequest, UNNotificationSettings, UNUserNotificationCenter, UNUserNotificationCenterDelegate,
+    };
+    use std::ptr::NonNull;
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    define_class!(
+        // macOS hides an app's own notifications while that app is in front, unless its delegate asks for them.
+        #[unsafe(super(NSObject))]
+        #[name = "DeskveetNotificationDelegate"]
+        struct Delegate;
+
+        unsafe impl NSObjectProtocol for Delegate {}
+
+        unsafe impl UNUserNotificationCenterDelegate for Delegate {
+            #[unsafe(method(userNotificationCenter:willPresentNotification:withCompletionHandler:))]
+            fn will_present(&self, _center: &UNUserNotificationCenter, _n: &UNNotification, done: &block2::DynBlock<dyn Fn(UNNotificationPresentationOptions)>) {
+                done.call((UNNotificationPresentationOptions::Banner | UNNotificationPresentationOptions::List | UNNotificationPresentationOptions::Sound,));
+            }
+        }
+    );
+
+    fn center() -> Retained<UNUserNotificationCenter> {
+        static DELEGATE: std::sync::Once = std::sync::Once::new();
+        let c = UNUserNotificationCenter::currentNotificationCenter();
+        DELEGATE.call_once(|| {
+            let d: Retained<Delegate> = unsafe { msg_send![super(Delegate::alloc().set_ivars(())), init] };
+            c.setDelegate(Some(ProtocolObject::from_ref(&*d)));
+            std::mem::forget(d); // the center keeps only a weak reference; this one lives as long as the app
+        });
+        c
+    }
+
+    fn status(c: &UNUserNotificationCenter) -> Option<UNAuthorizationStatus> {
+        let (tx, rx) = mpsc::channel();
+        let done = block2::RcBlock::new(move |s: NonNull<UNNotificationSettings>| {
+            let _ = tx.send(unsafe { s.as_ref() }.authorizationStatus());
+        });
+        c.getNotificationSettingsWithCompletionHandler(&done);
+        rx.recv_timeout(Duration::from_secs(5)).ok()
+    }
+
+    /// Ask once; waits for the person to answer the system prompt (up to two minutes).
+    fn ask(c: &UNUserNotificationCenter) -> bool {
+        let (tx, rx) = mpsc::channel();
+        let done = block2::RcBlock::new(move |granted: objc2::runtime::Bool, _e: *mut NSError| {
+            let _ = tx.send(granted.as_bool());
+        });
+        c.requestAuthorizationWithOptions_completionHandler(UNAuthorizationOptions::Alert | UNAuthorizationOptions::Sound, &done);
+        rx.recv_timeout(Duration::from_secs(120)).unwrap_or(false)
+    }
+
+    pub const OFF: &str = "Notifications are turned off for Deskveet. Turn them on in System Settings, Notifications, Deskveet.";
+
+    pub fn send(title: &str, body: &str) -> Result<(), String> {
+        let c = center();
+        match status(&c) {
+            Some(UNAuthorizationStatus::Denied) => return Err(OFF.into()),
+            Some(UNAuthorizationStatus::NotDetermined) | None => {
+                if !ask(&c) {
+                    return Err(OFF.into());
+                }
+            }
+            _ => {}
+        }
+        let content = UNMutableNotificationContent::new();
+        content.setTitle(&NSString::from_str(title));
+        content.setBody(&NSString::from_str(body));
+        let id = NSString::from_str(&format!("deskveet-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0)));
+        let req = UNNotificationRequest::requestWithIdentifier_content_trigger(&id, &content, None);
+        let (tx, rx) = mpsc::channel();
+        let done = block2::RcBlock::new(move |e: *mut NSError| {
+            let _ = tx.send(unsafe { e.as_ref() }.map(|e| e.localizedDescription().to_string()));
+        });
+        c.addNotificationRequest_withCompletionHandler(&req, Some(&done));
+        match rx.recv_timeout(Duration::from_secs(5)) {
+            Ok(Some(err)) => Err(format!("macOS did not show the notification: {err}")),
+            _ => Ok(()),
+        }
+    }
+}
+
+/// An app bundle's id and version, read through NSBundle (works for XML and binary Info.plists).
+fn bundle_info(path: &Path) -> Option<Bundle> {
+    use objc2_foundation::{NSBundle, NSString};
+    objc2::rc::autoreleasepool(|_| {
+        let b = NSBundle::bundleWithPath(&NSString::from_str(&path.to_string_lossy()))?;
+        let id = b.bundleIdentifier()?.to_string();
+        let version = b
+            .objectForInfoDictionaryKey(&NSString::from_str("CFBundleShortVersionString"))
+            .and_then(|o| o.downcast::<NSString>().ok())
+            .map(|s| s.to_string())
+            .unwrap_or_default();
+        Some(Bundle { path: path.to_path_buf(), bundle_id: id, version })
+    })
+}
+
+/// "2026-10-20 08:12:33 +0000" (mdls) to unix seconds.
+fn parse_md_date(s: &str) -> Option<i64> {
+    let s = s.trim();
+    let (date, rest) = s.split_once(' ')?;
+    let time = rest.split(' ').next()?;
+    let d: Vec<i64> = date.split('-').map(|x| x.parse().ok()).collect::<Option<_>>()?;
+    let t: Vec<i64> = time.split(':').map(|x| x.parse().ok()).collect::<Option<_>>()?;
+    if d.len() != 3 || t.len() != 3 {
+        return None;
+    }
+    // days from civil (Howard Hinnant), UTC
+    let (y, m, day) = (if d[1] <= 2 { d[0] - 1 } else { d[0] }, d[1], d[2]);
+    let era = y.div_euclid(400);
+    let yoe = y - era * 400;
+    let doy = (153 * (m + if m > 2 { -3 } else { 9 }) + 2) / 5 + day - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    Some((era * 146_097 + doe - 719_468) * 86_400 + t[0] * 3600 + t[1] * 60 + t[2])
+}
+
+fn osascript_path(script: &str) -> Option<PathBuf> {
+    let out = Command::new("/usr/bin/osascript").args(["-e", script]).stderr(Stdio::null()).output().ok()?;
+    let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    (out.status.success() && !s.is_empty()).then(|| PathBuf::from(s))
+}
+
+// ───────────────────────────── Platform ─────────────────────────────
+
+impl Platform for Mac {
+    fn memory_extra(&self) -> Option<MemExtra> {
+        let page = unsafe { libc::sysconf(libc::_SC_PAGESIZE) }.max(4096) as u64;
+        let vm = vm_stats().or_else(vm_stats_from_cli)?;
+        let purgeable = vm.purgeable_count as u64;
+        // Same definitions Activity Monitor uses.
+        let app = (vm.internal_page_count as u64).saturating_sub(purgeable) * page;
+        let wired = vm.wire_count as u64 * page;
+        let compressed = vm.compressor_page_count as u64 * page;
+        let cached = (vm.external_page_count as u64 + purgeable) * page;
+        let pressure = match sysctl_raw::<i32>("kern.memorystatus_vm_pressure_level") {
+            Some(4) => Pressure::Critical,
+            Some(2) => Pressure::Warn,
+            _ => Pressure::Normal,
+        };
+        let swap = sysctl_raw::<XswUsage>("vm.swapusage").unwrap_or_default();
+        Some(MemExtra {
+            app,
+            wired,
+            compressed,
+            cached,
+            used: app + wired + compressed,
+            pressure,
+            swap_used: swap.used,
+            swap_total: swap.total,
+        })
+    }
+
+    fn available_for_important_usage(&self, mount: &Path) -> Option<u64> {
+        cf_available_important(mount)
+    }
+
+    fn is_user_volume(&self, mount: &Path, _fs: &str) -> bool {
+        let m = mount.to_string_lossy();
+        // On APFS the user-visible disk is the Data volume; "/" is the read-only sealed system snapshot.
+        m == "/System/Volumes/Data" || (m.starts_with("/Volumes/") && !m.starts_with("/Volumes/com.apple.") && !m.contains("/Recovery"))
+    }
+
+    fn volume_label(&self, mount: &Path, fallback: &str) -> String {
+        if mount == Path::new("/System/Volumes/Data") {
+            // The boot volume is the entry in /Volumes that is a symlink to "/".
+            if let Ok(rd) = std::fs::read_dir("/Volumes") {
+                for e in rd.flatten() {
+                    if e.file_type().is_ok_and(|t| t.is_symlink()) && std::fs::canonicalize(e.path()).is_ok_and(|c| c == Path::new("/")) {
+                        return e.file_name().to_string_lossy().into_owned();
+                    }
+                }
+            }
+            return "Macintosh HD".into();
+        }
+        mount.file_name().map(|n| n.to_string_lossy().into_owned()).filter(|s| !s.is_empty()).unwrap_or_else(|| fallback.to_string())
+    }
+
+    fn reveal(&self, path: &Path) -> io::Result<()> {
+        spawn_reaped(Command::new("/usr/bin/open").arg("-R").arg(path))
+    }
+
+    fn open(&self, path: &Path) -> io::Result<()> {
+        spawn_reaped(Command::new("/usr/bin/open").arg(path))
+    }
+
+    fn quick_look(&self, path: &Path) -> io::Result<()> {
+        spawn_reaped(Command::new("/usr/bin/qlmanage").arg("-p").arg(path))
+    }
+
+    fn open_full_disk_access_settings(&self) -> io::Result<()> {
+        spawn_reaped(Command::new("/usr/bin/open").arg("x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles"))
+    }
+
+    fn full_disk_access(&self) -> Option<bool> {
+        // Folders macOS privacy protection guards. Listing one succeeds only with Full Disk Access.
+        let home = PathBuf::from(std::env::var_os("HOME")?);
+        let mut blocked = false;
+        for rel in ["Library/Safari", "Library/Mail", "Library/Messages", ".Trash", "Library/Application Support/com.apple.TCC"] {
+            match std::fs::read_dir(home.join(rel)) {
+                Ok(_) => return Some(true),
+                Err(e) if e.raw_os_error() == Some(1) || e.kind() == io::ErrorKind::PermissionDenied => blocked = true,
+                Err(_) => {}
+            }
+        }
+        blocked.then_some(false)
+    }
+
+    fn notify(&self, title: &str, body: &str) {
+        let _ = self.notify_checked(title, body);
+    }
+
+    fn notify_checked(&self, title: &str, body: &str) -> Result<(), String> {
+        // UNUserNotificationCenter only works inside an .app bundle (it raises otherwise, e.g. in tests).
+        let in_bundle = std::env::current_exe().ok().is_some_and(|p| p.to_string_lossy().contains(".app/Contents/MacOS/"));
+        if in_bundle {
+            return objc2::rc::autoreleasepool(|_| un::send(title, body));
+        }
+        let esc = |s: &str| s.replace(['"', '\\'], "'");
+        let _ = spawn_reaped(Command::new("/usr/bin/osascript").args(["-e", &format!("display notification \"{}\" with title \"{}\"", esc(body), esc(title))]));
+        Ok(())
+    }
+
+    fn confirm(&self, title: &str, message: &str, ok: &str) -> bool {
+        let q = |s: &str| s.replace(['"', '\\'], "'");
+        let script = format!(
+            "display dialog \"{}\" with title \"{}\" buttons {{\"Cancel\", \"{}\"}} default button \"Cancel\" cancel button \"Cancel\" with icon caution",
+            q(message), q(title), q(ok)
+        );
+        // Cancel exits with an error; only the ok button returns normally.
+        Command::new("/usr/bin/osascript").args(["-e", &script]).stderr(Stdio::null()).output()
+            .is_ok_and(|o| o.status.success() && String::from_utf8_lossy(&o.stdout).contains(&format!("button returned:{}", q(ok))))
+    }
+
+    fn choose_from_list(&self, title: &str, prompt: &str, items: &[String], ok: &str) -> Option<Vec<String>> {
+        // Values travel as arguments, so names need no escaping. Returns one chosen item per line.
+        const SCRIPT: &str = r#"on run argv
+set theTitle to item 1 of argv
+set thePrompt to item 2 of argv
+set theOk to item 3 of argv
+set theItems to items 4 thru -1 of argv
+set picked to choose from list theItems with title theTitle with prompt thePrompt OK button name theOk cancel button name "Cancel" with multiple selections allowed and empty selection allowed
+if picked is false then return "__cancelled__"
+set AppleScript's text item delimiters to linefeed
+return picked as text
+end run"#;
+        let out = Command::new("/usr/bin/osascript").arg("-e").arg(SCRIPT).args([title, prompt, ok]).args(items).stderr(Stdio::null()).output().ok()?;
+        let text = String::from_utf8_lossy(&out.stdout).trim_end_matches('\n').to_string();
+        if !out.status.success() || text == "__cancelled__" {
+            return None;
+        }
+        Some(text.lines().filter(|l| !l.is_empty()).map(String::from).collect())
+    }
+
+    fn installed_apps(&self) -> Vec<Bundle> {
+        let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
+        let mut roots = vec![PathBuf::from("/Applications"), home.join("Applications")];
+        // vendor folders such as /Applications/Utilities or /Applications/Microsoft Office
+        if let Ok(rd) = std::fs::read_dir("/Applications") {
+            roots.extend(rd.flatten().map(|e| e.path()).filter(|p| p.is_dir() && p.extension().is_none_or(|x| x != "app")));
+        }
+        let mut out = Vec::new();
+        let mut seen = HashSet::new();
+        for r in roots {
+            let Ok(rd) = std::fs::read_dir(&r) else { continue };
+            for p in rd.flatten().map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x == "app")) {
+                if let Some(b) = bundle_info(&p) {
+                    if seen.insert(p.clone()) {
+                        out.push(b);
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    fn known_bundle_ids(&self) -> HashSet<String> {
+        let mut ids: HashSet<String> = self.installed_apps().into_iter().map(|b| b.bundle_id.to_lowercase()).collect();
+        // Spotlight knows every app bundle on the Mac, including helpers inside other apps.
+        if let Ok(o) = Command::new("/usr/bin/mdfind").arg("kMDItemContentType == 'com.apple.application-bundle'").stderr(Stdio::null()).output() {
+            for line in String::from_utf8_lossy(&o.stdout).lines() {
+                if let Some(b) = bundle_info(Path::new(line)) {
+                    ids.insert(b.bundle_id.to_lowercase());
+                }
+            }
+        }
+        ids.extend(self.running_apps().into_iter().map(|a| a.bundle_id.to_lowercase()));
+        // Parts of software that are not apps: browser plug-ins, preference panes, and launch items
+        // (their labels are usually the id their data is stored under).
+        let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
+        for dir in [PathBuf::from("/Library/Internet Plug-Ins"), PathBuf::from("/Library/PreferencePanes"), home.join("Library/PreferencePanes"), home.join("Library/Internet Plug-Ins")] {
+            let Ok(rd) = std::fs::read_dir(&dir) else { continue };
+            for p in rd.flatten().map(|e| e.path()) {
+                if let Some(b) = bundle_info(&p) {
+                    ids.insert(b.bundle_id.to_lowercase());
+                }
+            }
+        }
+        ids.extend(self.launch_defs().into_iter().map(|d| d.label.to_lowercase()).filter(|l| !l.is_empty()));
+        ids
+    }
+
+    fn launch_defs(&self) -> Vec<LaunchDef> {
+        let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
+        let dirs = [home.join("Library/LaunchAgents"), PathBuf::from("/Library/LaunchAgents"), PathBuf::from("/Library/LaunchDaemons")];
+        let mut out = Vec::new();
+        for d in dirs {
+            let Ok(rd) = std::fs::read_dir(&d) else { continue };
+            for p in rd.flatten().map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x == "plist")) {
+                // plutil reads both XML and binary property lists
+                let Ok(o) = Command::new("/usr/bin/plutil").args(["-convert", "json", "-o", "-"]).arg(&p).stderr(Stdio::null()).output() else { continue };
+                let Ok(v) = serde_json::from_slice::<serde_json::Value>(&o.stdout) else { continue };
+                let program = v["Program"].as_str().map(String::from).or_else(|| v["ProgramArguments"][0].as_str().map(String::from));
+                out.push(LaunchDef {
+                    label: v["Label"].as_str().unwrap_or_default().to_string(),
+                    program,
+                    run_at_load: v["RunAtLoad"].as_bool().unwrap_or(false),
+                    keep_alive: !v["KeepAlive"].is_null() && v["KeepAlive"] != serde_json::Value::Bool(false),
+                    disabled: v["Disabled"].as_bool().unwrap_or(false),
+                    plist: p,
+                });
+            }
+        }
+        out
+    }
+
+    fn open_login_items_settings(&self) -> io::Result<()> {
+        spawn_reaped(Command::new("/usr/bin/open").arg("x-apple.systempreferences:com.apple.LoginItems-Settings.extension"))
+    }
+
+    fn private_size(&self, path: &Path) -> Option<u64> {
+        use std::os::unix::ffi::OsStrExt;
+        let c = std::ffi::CString::new(path.as_os_str().as_bytes()).ok()?;
+        let mut req = libc::attrlist {
+            bitmapcount: libc::ATTR_BIT_MAP_COUNT,
+            reserved: 0,
+            commonattr: 0,
+            volattr: 0,
+            dirattr: 0,
+            fileattr: 0,
+            forkattr: libc::ATTR_CMNEXT_PRIVATESIZE,
+        };
+        // the reply is its own length (u32) followed by the size (off_t)
+        #[repr(C, packed(4))]
+        struct Reply {
+            len: u32,
+            private: libc::off_t,
+        }
+        let mut out = Reply { len: 0, private: 0 };
+        let opts = libc::FSOPT_NOFOLLOW | libc::FSOPT_ATTR_CMN_EXTENDED;
+        let r = unsafe { libc::getattrlist(c.as_ptr(), &mut req as *mut _ as *mut _, &mut out as *mut _ as *mut _, size_of::<Reply>(), opts) };
+        let private = out.private;
+        (r == 0 && out.len as usize >= size_of::<Reply>()).then(|| private.max(0) as u64)
+    }
+
+    fn last_used(&self, paths: &[PathBuf]) -> Vec<Option<i64>> {
+        // Spotlight's "last opened" date, 100 files per mdls call; values are separated by NUL.
+        let mut out = Vec::with_capacity(paths.len());
+        for chunk in paths.chunks(100) {
+            let got = Command::new("/usr/bin/mdls")
+                .args(["-name", "kMDItemLastUsedDate", "-raw", "-nullMarker", "-"])
+                .args(chunk)
+                .stderr(Stdio::null())
+                .output()
+                .ok()
+                .map(|o| String::from_utf8_lossy(&o.stdout).split('\0').map(parse_md_date).collect::<Vec<_>>())
+                .unwrap_or_default();
+            out.extend((0..chunk.len()).map(|i| got.get(i).copied().flatten()));
+        }
+        out
+    }
+
+    fn sleep_now(&self) -> io::Result<()> {
+        Command::new("/usr/bin/pmset").arg("sleepnow").stdout(Stdio::null()).stderr(Stdio::null()).status().map(|_| ())
+    }
+
+    fn lock_screen(&self) -> io::Result<()> {
+        // The same call the Lock Screen menu item uses; falls back to turning the display off, which locks
+        // when "require password after sleep" is on.
+        unsafe {
+            let lib = libc::dlopen(c"/System/Library/PrivateFrameworks/login.framework/Versions/Current/login".as_ptr(), libc::RTLD_LAZY);
+            if !lib.is_null() {
+                let f = libc::dlsym(lib, c"SACLockScreenImmediate".as_ptr());
+                if !f.is_null() {
+                    let lock: extern "C" fn() -> i32 = std::mem::transmute(f);
+                    lock();
+                    return Ok(());
+                }
+            }
+        }
+        Command::new("/usr/bin/pmset").arg("displaysleepnow").stdout(Stdio::null()).stderr(Stdio::null()).status().map(|_| ())
+    }
+
+    fn power(&self, what: Power) -> Result<(), String> {
+        let verb = match what {
+            Power::Restart => "restart",
+            Power::ShutDown => "shut down",
+        };
+        let out = Command::new("/usr/bin/osascript")
+            .args(["-e", &format!("tell application \"System Events\" to {verb}")])
+            .output()
+            .map_err(|e| e.to_string())?;
+        if out.status.success() {
+            return Ok(());
+        }
+        let err = String::from_utf8_lossy(&out.stderr);
+        Err(if err.contains("-1743") || err.contains("Not authorized") || err.contains("not allowed") {
+            "Deskveet is not allowed to control System Events. Turn it on in System Settings, Privacy & Security, Automation.".into()
+        } else if err.contains("-128") {
+            "Cancelled by an app that has unsaved work.".into()
+        } else {
+            err.trim().to_string()
+        })
+    }
+
+    fn ejectable_disks(&self) -> Vec<Disk> {
+        let Ok(entries) = std::fs::read_dir("/Volumes") else { return Vec::new() };
+        let mut disks: Vec<Disk> = entries
+            .flatten()
+            .map(|e| e.path())
+            // the start-up disk appears in /Volumes as a link to "/"
+            .filter(|p| !std::fs::symlink_metadata(p).map(|m| m.file_type().is_symlink()).unwrap_or(true))
+            .filter(|p| {
+                let Ok(o) = Command::new("/usr/sbin/diskutil").arg("info").arg(p).stderr(Stdio::null()).output() else { return false };
+                let info = String::from_utf8_lossy(&o.stdout);
+                let field = |k: &str| info.lines().find_map(|l| l.trim().strip_prefix(k).map(|v| v.trim().to_string())).unwrap_or_default();
+                o.status.success()
+                    && field("Mount Point:") == p.to_string_lossy()
+                    && (field("Ejectable:") == "Yes" || field("Protocol:") == "Disk Image" || field("Device Location:") == "External")
+            })
+            .map(|p| Disk { name: p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(), path: p })
+            .collect();
+        disks.sort_by(|a, b| a.name.cmp(&b.name));
+        disks
+    }
+
+    fn eject(&self, disk: &Disk) -> Result<(), String> {
+        let out = Command::new("/usr/sbin/diskutil").arg("eject").arg(&disk.path).output().map_err(|e| e.to_string())?;
+        if out.status.success() {
+            return Ok(());
+        }
+        let msg = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
+        Err(if msg.contains("in use") || msg.contains("dissented") {
+            format!("{} is in use. Close the files on it and try again.", disk.name)
+        } else {
+            format!("{} could not be ejected.", disk.name)
+        })
+    }
+
+    fn keep_awake(&self, display: bool, secs: Option<u64>) -> io::Result<std::process::Child> {
+        let mut cmd = Command::new("/usr/bin/caffeinate");
+        cmd.arg(if display { "-di" } else { "-i" }).args(["-w", &std::process::id().to_string()]);
+        if let Some(s) = secs {
+            cmd.args(["-t", &s.to_string()]);
+        }
+        cmd.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn()
+    }
+
+    fn open_notification_settings(&self) -> io::Result<()> {
+        spawn_reaped(Command::new("/usr/bin/open").arg("x-apple.systempreferences:com.apple.Notifications-Settings.extension?id=app.deskveet.desktop"))
+    }
+
+    fn pick_save_file(&self, default_name: &str) -> Option<PathBuf> {
+        let name = default_name.replace(['"', '\\'], "");
+        osascript_path(&format!("POSIX path of (choose file name with prompt \"Export custom rules\" default name \"{name}\")"))
+    }
+
+    fn pick_file(&self) -> Option<PathBuf> {
+        osascript_path("POSIX path of (choose file with prompt \"Import custom rules\")")
+    }
+
+    fn pick_folder(&self) -> Option<PathBuf> {
+        let out = Command::new("/usr/bin/osascript")
+            .args(["-e", "POSIX path of (choose folder with prompt \"Choose a folder to scan\")"])
+            .stderr(Stdio::null())
+            .output()
+            .ok()?;
+        if !out.status.success() {
+            return None;
+        }
+        let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        (!s.is_empty()).then(|| PathBuf::from(s))
+    }
+}
+
+// ───────────────────────────── Apps ─────────────────────────────
+
+impl Apps for Mac {
+    // These run on worker threads, which have no autorelease pool: each body runs inside one, otherwise
+    // every call leaks the NSRunningApplication objects and strings AppKit hands back.
+    fn running_apps(&self) -> Vec<RunningApp> {
+        objc2::rc::autoreleasepool(|_| {
+            use objc2_app_kit::{NSApplicationActivationPolicy, NSWorkspace};
+            let ws = NSWorkspace::sharedWorkspace();
+            let mut out = Vec::new();
+            for app in ws.runningApplications().iter() {
+                if app.activationPolicy() != NSApplicationActivationPolicy::Regular || app.isTerminated() {
+                    continue;
+                }
+                let pid = app.processIdentifier();
+                if pid <= 0 {
+                    continue;
+                }
+                out.push(RunningApp {
+                    pid: pid as u32,
+                    name: app.localizedName().map(|s| s.to_string()).unwrap_or_default(),
+                    bundle_id: app.bundleIdentifier().map(|s| s.to_string()).unwrap_or_default(),
+                    bundle_path: app.bundleURL().and_then(|u| u.path()).map(|p| PathBuf::from(p.to_string())),
+                });
+            }
+            out
+        })
+    }
+
+    fn app_icon_png(&self, bundle_path: &Path) -> Option<Vec<u8>> {
+        objc2::rc::autoreleasepool(|_| {
+            use objc2::AllocAnyThread;
+            use objc2_app_kit::{NSBitmapImageFileType, NSBitmapImageRep, NSWorkspace};
+            use objc2_foundation::{NSDictionary, NSPoint, NSRect, NSSize, NSString};
+            let ws = NSWorkspace::sharedWorkspace();
+            let icon = ws.iconForFile(&NSString::from_str(bundle_path.to_str()?));
+            let mut rect = NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(64.0, 64.0));
+            // SAFETY: rect is a valid in/out pointer; no context or hints.
+            let cg = unsafe { icon.CGImageForProposedRect_context_hints(&mut rect, None, None) }?;
+            let rep = NSBitmapImageRep::initWithCGImage(NSBitmapImageRep::alloc(), &cg);
+            // SAFETY: empty properties dictionary is valid for PNG.
+            let data = unsafe { rep.representationUsingType_properties(NSBitmapImageFileType::PNG, &NSDictionary::new()) }?;
+            Some(data.to_vec())
+        })
+    }
+
+    fn quit_app(&self, pid: u32, force: bool) -> bool {
+        objc2::rc::autoreleasepool(|_| {
+            use objc2_app_kit::NSRunningApplication;
+            match NSRunningApplication::runningApplicationWithProcessIdentifier(pid as libc::pid_t) {
+                Some(app) => if force { app.forceTerminate() } else { app.terminate() },
+                None => false,
+            }
+        })
+    }
+
+    fn responsible_pid(&self, pid: u32) -> Option<u32> {
+        // The same attribution Activity Monitor uses. Looked up at runtime so a missing symbol only
+        // means we fall back to grouping by bundle path.
+        type F = unsafe extern "C" fn(libc::pid_t) -> libc::pid_t;
+        static FN: std::sync::OnceLock<Option<F>> = std::sync::OnceLock::new();
+        let f = FN.get_or_init(|| {
+            let name = CString::new("responsibility_get_pid_responsible_for_pid").ok()?;
+            // SAFETY: dlsym with RTLD_DEFAULT and a NUL-terminated name; a null result is handled.
+            let p = unsafe { libc::dlsym(libc::RTLD_DEFAULT, name.as_ptr()) };
+            (!p.is_null()).then(|| unsafe { std::mem::transmute::<*mut c_void, F>(p) })
+        });
+        let r = unsafe { (*f)?(pid as libc::pid_t) };
+        (r > 0).then_some(r as u32)
+    }
+}
+
+// ───────────────────────────── ProcessInfo ─────────────────────────────
+
+/// Never offered for quit, whatever the owner.
+const PROTECTED_NAMES: &[&str] = &[
+    "kernel_task", "launchd", "WindowServer", "loginwindow", "Finder", "Dock", "SystemUIServer", "ControlCenter",
+    "NotificationCenter", "coreaudiod", "coreservicesd", "cfprefsd", "distnoted", "mds", "mds_stores", "mdworker_shared",
+    "securityd", "trustd", "opendirectoryd", "powerd", "configd", "diskarbitrationd", "fseventsd", "hidd", "launchservicesd",
+    "logd", "syslogd", "UserEventAgent", "universalaccessd", "WindowManager", "Spotlight", "sharingd", "airportd", "bluetoothd",
+    "tccd", "amfid", "endpointsecurityd", "usermanagerd", "runningboardd", "watchdogd", "lsd", "secd", "pboard", "backupd",
+    "Deskveet", "deskveet",
+];
+
+const SYSTEM_PREFIXES: &[&str] = &["/System/", "/usr/libexec/", "/usr/sbin/", "/sbin/", "/usr/bin/", "/bin/", "/Library/Apple/", "/private/var/db/"];
+
+impl ProcessInfo for Mac {
+    fn protected_reason(&self, p: &ProcFacts, me_uid: u32, me_pid: u32) -> Option<&'static str> {
+        if p.pid <= 1 {
+            return Some("system process");
+        }
+        if p.pid == me_pid {
+            return Some("this app");
+        }
+        if p.uid == 0 {
+            return Some("runs as root");
+        }
+        if p.uid != me_uid {
+            return Some("owned by another user");
+        }
+        if PROTECTED_NAMES.contains(&p.name) {
+            return Some("protected system process");
+        }
+        if let Some(exe) = p.exe {
+            let s = exe.to_string_lossy();
+            if SYSTEM_PREFIXES.iter().any(|pre| s.starts_with(pre)) {
+                return Some("part of macOS");
+            }
+        }
+        None
+    }
+
+    fn reveal_target(&self, exe: &Path) -> PathBuf {
+        // Reveal the outermost .app bundle (Chrome helpers live deep inside the main app bundle).
+        let mut found: Option<PathBuf> = None;
+        let mut cur = PathBuf::new();
+        for c in exe.components() {
+            cur.push(c);
+            if cur.extension().is_some_and(|e| e == "app") {
+                found = Some(cur.clone());
+                break;
+            }
+        }
+        found.unwrap_or_else(|| exe.to_path_buf())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_clone_frees_nothing() {
+        let t = tempfile::tempdir().unwrap();
+        let (a, b, c) = (t.path().join("a.bin"), t.path().join("b.bin"), t.path().join("c.bin"));
+        std::fs::write(&a, vec![7u8; 1 << 20]).unwrap();
+        std::fs::write(&c, vec![7u8; 1 << 20]).unwrap(); // fs::copy would clone
+        let ok = Command::new("/bin/cp").arg("-c").arg(&a).arg(&b).status().map(|s| s.success()).unwrap_or(false);
+        let p = Mac;
+        let Some(own) = p.private_size(&a) else { return }; // not APFS
+        assert!(ok, "cp -c works on APFS");
+        assert_eq!(own, 0, "a and b share their blocks");
+        assert_eq!(p.private_size(&b), Some(0));
+        assert!(p.private_size(&c).unwrap() >= 1 << 20, "a plain copy has its own blocks");
+    }
+
+    #[test]
+    fn spotlight_dates_parse_to_unix_seconds() {
+        assert_eq!(parse_md_date("1970-01-01 00:00:00 +0000"), Some(0));
+        assert_eq!(parse_md_date("2026-10-20 08:12:33 +0000"), Some(1_792_483_953));
+        assert_eq!(parse_md_date("-"), None);
+    }
+
+    fn facts<'a>(pid: u32, uid: u32, name: &'a str, exe: Option<&'a Path>) -> ProcFacts<'a> {
+        ProcFacts { pid, uid, name, exe }
+    }
+
+    #[test]
+    fn protects_system_and_root() {
+        let m = Mac;
+        assert!(m.protected_reason(&facts(1, 0, "launchd", None), 501, 999).is_some());
+        assert!(m.protected_reason(&facts(120, 0, "something", None), 501, 999).is_some());
+        assert!(m.protected_reason(&facts(300, 501, "WindowServer", None), 501, 999).is_some());
+        assert!(m.protected_reason(&facts(300, 501, "kernel_task", None), 501, 999).is_some());
+        assert!(m.protected_reason(&facts(999, 501, "deskveet", None), 501, 999).is_some());
+        assert!(m.protected_reason(&facts(400, 502, "Notes", None), 501, 999).is_some());
+        let sys = Path::new("/System/Library/CoreServices/Foo.app/Contents/MacOS/Foo");
+        assert!(m.protected_reason(&facts(400, 501, "Foo", Some(sys)), 501, 999).is_some());
+    }
+
+    #[test]
+    fn allows_normal_user_apps() {
+        let m = Mac;
+        let exe = Path::new("/Applications/Notes2.app/Contents/MacOS/Notes2");
+        assert!(m.protected_reason(&facts(400, 501, "Notes2", Some(exe)), 501, 999).is_none());
+    }
+
+    #[test]
+    fn reveal_target_picks_outer_bundle() {
+        let m = Mac;
+        let exe = Path::new("/Applications/Google Chrome.app/Contents/Frameworks/X.framework/Helpers/Google Chrome Helper.app/Contents/MacOS/Helper");
+        assert_eq!(m.reveal_target(exe), PathBuf::from("/Applications/Google Chrome.app"));
+        let plain = Path::new("/opt/homebrew/bin/node");
+        assert_eq!(m.reveal_target(plain), PathBuf::from("/opt/homebrew/bin/node"));
+    }
+
+    #[test]
+    fn lists_running_apps_with_icons() {
+        let apps = Mac.running_apps();
+        assert!(apps.iter().any(|a| a.bundle_id == "com.apple.finder"), "Finder is always running: {:?}", apps.iter().map(|a| &a.bundle_id).collect::<Vec<_>>());
+        let finder = apps.iter().find(|a| a.bundle_id == "com.apple.finder").unwrap();
+        let png = Mac.app_icon_png(finder.bundle_path.as_ref().unwrap()).expect("icon");
+        assert_eq!(&png[1..4], b"PNG");
+        assert!(png.len() < 60_000, "icon should be small, got {} bytes", png.len());
+    }
+
+    #[test]
+    fn responsible_pid_is_known_for_this_process() {
+        let me = std::process::id();
+        assert!(Mac.responsible_pid(me).is_some(), "symbol should resolve on macOS");
+    }
+
+    /// Runs in a child process (see the test below) so no other test's allocations are counted.
+    #[test]
+    #[ignore]
+    fn leak_probe_child() {
+        let rss = || {
+            let mut ru: libc::rusage = unsafe { std::mem::zeroed() };
+            unsafe { libc::getrusage(libc::RUSAGE_SELF, &mut ru) };
+            ru.ru_maxrss as u64
+        };
+        let grew = std::thread::spawn(move || {
+            for _ in 0..50 {
+                let _ = Mac.running_apps();
+            }
+            let before = rss();
+            for _ in 0..2000 {
+                let _ = Mac.running_apps();
+            }
+            rss().saturating_sub(before)
+        })
+        .join()
+        .unwrap();
+        println!("LEAK_PROBE_GREW={grew}");
+    }
+
+    #[test]
+    fn listing_apps_repeatedly_does_not_leak_objc_objects() {
+        // Worker threads have no autorelease pool; before the fix every call leaked each app object.
+        let out = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "platform::macos::tests::leak_probe_child", "--ignored", "--nocapture", "--test-threads=1"])
+            .output()
+            .unwrap();
+        let text = String::from_utf8_lossy(&out.stdout);
+        let grew: u64 = text
+            .split("LEAK_PROBE_GREW=")
+            .nth(1)
+            .and_then(|v| v.split_whitespace().next())
+            .and_then(|v| v.parse().ok())
+            .expect("probe output");
+        assert!(grew < 4 * 1024 * 1024, "peak memory grew by {grew} bytes over 2000 calls");
+    }
+
+    #[test]
+    fn full_disk_access_probe_gives_an_answer() {
+        // Read-only: lists a protected folder. A plain test runner has no Full Disk Access.
+        let r = Mac.full_disk_access();
+        assert!(r.is_some(), "the probe should be able to tell on macOS");
+        eprintln!("full disk access for this test binary: {r:?}");
+    }
+
+    #[test]
+    fn vm_struct_matches_kernel_size() {
+        assert_eq!(std::mem::size_of::<VmStat64>(), 152);
+    }
+
+    #[test]
+    fn memory_numbers_are_sane() {
+        let m = Mac.memory_extra().expect("memory");
+        assert!(m.wired > 0 && m.used > m.wired);
+    }
+}

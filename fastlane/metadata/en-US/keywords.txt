@@ -1,0 +1,1 @@
+disk,cleaner,storage,cache,xcode,deriveddata,simulator,developer,space,npm,gradle,privacy,trash

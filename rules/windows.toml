@@ -1,0 +1,501 @@
+# Deskveet rule registry — Windows
+#
+# Same format as rules/macos.toml (see the field reference there). Paths use forward slashes; `~` is the
+# profile folder (C:/Users/name). Folders Windows lets users or tools move are locations, read from the
+# environment first. Process names in `busy` are written without `.exe`.
+#
+# Nothing here needs administrator rights. System folders such as Windows Update's are left to Windows' own
+# Disk Cleanup.
+
+schema_version = 1
+rules_version = "1.0.0"
+
+[[location]]
+id = "local"
+name = "Local app data"
+env = ["LOCALAPPDATA"]
+default = "~/AppData/Local"
+
+[[location]]
+id = "roaming"
+name = "Roaming app data"
+env = ["APPDATA"]
+default = "~/AppData/Roaming"
+
+[[location]]
+id = "temp"
+name = "Temporary files"
+env = ["TEMP", "TMP"]
+default = "~/AppData/Local/Temp"
+
+[[location]]
+id = "npm_cache"
+name = "npm cache"
+env = ["npm_config_cache", "LOCALAPPDATA/npm-cache"]
+default = "~/AppData/Local/npm-cache"
+
+[[location]]
+id = "yarn_cache"
+name = "Yarn cache"
+env = ["YARN_CACHE_FOLDER", "LOCALAPPDATA/Yarn/Cache"]
+default = "~/AppData/Local/Yarn/Cache"
+
+[[location]]
+id = "pnpm_store"
+name = "pnpm store"
+env = ["LOCALAPPDATA/pnpm/store"]
+default = "~/AppData/Local/pnpm/store"
+
+[[location]]
+id = "pip_cache"
+name = "pip cache"
+env = ["PIP_CACHE_DIR", "LOCALAPPDATA/pip/Cache"]
+default = "~/AppData/Local/pip/Cache"
+
+[[location]]
+id = "nuget"
+name = "NuGet packages"
+env = ["NUGET_PACKAGES"]
+default = "~/.nuget/packages"
+
+[[location]]
+id = "gradle_home"
+name = "Gradle"
+env = ["GRADLE_USER_HOME"]
+default = "~/.gradle"
+
+[[location]]
+id = "cargo_home"
+name = "Cargo"
+env = ["CARGO_HOME"]
+default = "~/.cargo"
+
+[[location]]
+id = "pub_cache"
+name = "Dart and Flutter packages"
+env = ["PUB_CACHE", "LOCALAPPDATA/Pub/Cache"]
+default = "~/AppData/Local/Pub/Cache"
+
+[[location]]
+id = "go_cache"
+name = "Go build cache"
+env = ["GOCACHE", "LOCALAPPDATA/go-build"]
+default = "~/AppData/Local/go-build"
+
+[[location]]
+id = "android_sdk"
+name = "Android SDK"
+env = ["ANDROID_HOME", "ANDROID_SDK_ROOT", "LOCALAPPDATA/Android/Sdk"]
+default = "~/AppData/Local/Android/Sdk"
+
+[[location]]
+id = "android_avd"
+name = "Android virtual devices"
+env = ["ANDROID_AVD_HOME", "ANDROID_USER_HOME/avd"]
+default = "~/.android/avd"
+
+# ───────────────────────────── System ─────────────────────────────
+
+[[rule]]
+id = "system.temp"
+name = "Temporary files"
+category = "System"
+paths = ["{temp}/*"]
+risk = "safe"
+description = "Deletes files that apps left in your Temp folder. Anything still in use is skipped."
+regenerates = "Apps create new temporary files as they need them."
+method = "trash"
+min_age_days = 2
+
+[[rule]]
+id = "system.crash_dumps"
+name = "Crash dumps"
+category = "System"
+paths = ["{local}/CrashDumps/*"]
+risk = "safe"
+description = "Deletes memory dumps written when apps crashed. Only useful when sending a crash to a developer."
+regenerates = "Written again only if an app crashes."
+method = "trash"
+
+[[rule]]
+id = "system.error_reports"
+name = "Windows error reports"
+category = "System"
+paths = ["{local}/Microsoft/Windows/WER/ReportArchive/*", "{local}/Microsoft/Windows/WER/ReportQueue/*"]
+risk = "safe"
+description = "Deletes problem reports Windows kept after sending or queueing them."
+regenerates = "Created again when an app has a problem."
+method = "trash"
+
+[[rule]]
+id = "system.shader_cache"
+name = "DirectX shader cache"
+category = "System"
+paths = ["{local}/D3DSCache/*", "{local}/NVIDIA/DXCache/*", "{local}/NVIDIA/GLCache/*", "{local}/AMD/DxCache/*", "{local}/AMD/GLCache/*"]
+risk = "safe"
+description = "Deletes compiled graphics shaders. Games and apps may stutter briefly the first time they draw again."
+regenerates = "Compiled again by the graphics driver as needed."
+method = "trash"
+
+[[rule]]
+id = "system.thumbnails"
+name = "Thumbnail cache"
+category = "System"
+paths = ["{local}/Microsoft/Windows/Explorer/thumbcache_*.db", "{local}/Microsoft/Windows/Explorer/iconcache_*.db"]
+risk = "review"
+description = "Deletes File Explorer's cached thumbnails and icons. Folders with many pictures show placeholders until they are drawn again. Files Explorer has open are skipped."
+regenerates = "Rebuilt by File Explorer as you browse."
+method = "trash"
+busy = ["explorer"]
+
+[[rule]]
+id = "system.trash"
+name = "Recycle Bin"
+category = "System"
+kind = "dynamic"
+dynamic = "trash"
+paths = []
+risk = "caution"
+description = "Permanently deletes everything in the Recycle Bin. This cannot be undone."
+regenerates = "Not recoverable."
+method = "erase"
+
+# ───────────────────────────── Browsers ─────────────────────────────
+
+[[rule]]
+id = "browser.chrome"
+name = "Chrome cache"
+category = "Browsers"
+paths = ["{local}/Google/Chrome/User Data/*/Cache/*", "{local}/Google/Chrome/User Data/*/Code Cache/*", "{local}/Google/Chrome/User Data/*/GPUCache/*"]
+risk = "safe"
+description = "Deletes cached web pages, scripts and images. Logins, history and bookmarks are kept."
+regenerates = "Downloaded again as you browse; pages may load slower at first."
+method = "trash"
+busy = ["chrome"]
+
+[[rule]]
+id = "browser.edge"
+name = "Edge cache"
+category = "Browsers"
+paths = ["{local}/Microsoft/Edge/User Data/*/Cache/*", "{local}/Microsoft/Edge/User Data/*/Code Cache/*", "{local}/Microsoft/Edge/User Data/*/GPUCache/*"]
+risk = "safe"
+description = "Deletes cached web pages, scripts and images. Logins, history and favorites are kept."
+regenerates = "Downloaded again as you browse; pages may load slower at first."
+method = "trash"
+busy = ["msedge"]
+
+[[rule]]
+id = "browser.brave"
+name = "Brave cache"
+category = "Browsers"
+paths = ["{local}/BraveSoftware/Brave-Browser/User Data/*/Cache/*", "{local}/BraveSoftware/Brave-Browser/User Data/*/Code Cache/*", "{local}/BraveSoftware/Brave-Browser/User Data/*/GPUCache/*"]
+risk = "safe"
+description = "Deletes cached web pages, scripts and images. Logins, history and bookmarks are kept."
+regenerates = "Downloaded again as you browse; pages may load slower at first."
+method = "trash"
+busy = ["brave"]
+
+[[rule]]
+id = "browser.firefox"
+name = "Firefox cache"
+category = "Browsers"
+paths = ["{local}/Mozilla/Firefox/Profiles/*/cache2/*"]
+risk = "safe"
+description = "Deletes cached web pages, scripts and images. Logins, history and bookmarks are kept."
+regenerates = "Downloaded again as you browse; pages may load slower at first."
+method = "trash"
+busy = ["firefox"]
+
+# ───────────────────────────── App caches ─────────────────────────────
+
+[[rule]]
+id = "app.vscode"
+name = "VS Code caches"
+category = "App caches"
+paths = ["{roaming}/Code/Cache/*", "{roaming}/Code/CachedData/*", "{roaming}/Code/CachedExtensionVSIXs/*", "{roaming}/Code/Code Cache/*", "{roaming}/Code/GPUCache/*"]
+risk = "safe"
+description = "Deletes VS Code's caches and the extension installers it kept. Settings, extensions and open workspaces are kept."
+regenerates = "Rebuilt the next time VS Code starts."
+method = "trash"
+busy = ["Code"]
+
+[[rule]]
+id = "app.discord"
+name = "Discord cache"
+category = "App caches"
+paths = ["{roaming}/discord/Cache/*", "{roaming}/discord/Code Cache/*", "{roaming}/discord/GPUCache/*"]
+risk = "safe"
+description = "Deletes cached images and media from Discord. Messages and your account are not affected."
+regenerates = "Downloaded again as you use Discord."
+method = "trash"
+busy = ["Discord"]
+
+[[rule]]
+id = "app.slack"
+name = "Slack cache"
+category = "App caches"
+paths = ["{roaming}/Slack/Cache/*", "{roaming}/Slack/Code Cache/*", "{roaming}/Slack/GPUCache/*", "{roaming}/Slack/Service Worker/CacheStorage/*"]
+risk = "safe"
+description = "Deletes cached files from Slack. Messages and workspaces are not affected."
+regenerates = "Downloaded again as you use Slack."
+method = "trash"
+busy = ["slack"]
+
+[[rule]]
+id = "app.teams"
+name = "Teams cache"
+category = "App caches"
+paths = ["{local}/Packages/MSTeams_8wekyb3d8bbwe/LocalCache/Microsoft/MSTeams/EBWebView/Default/Cache/*", "{roaming}/Microsoft/Teams/Cache/*", "{roaming}/Microsoft/Teams/Service Worker/CacheStorage/*"]
+risk = "safe"
+description = "Deletes cached files from Microsoft Teams. Chats and meetings are not affected."
+regenerates = "Downloaded again as you use Teams."
+method = "trash"
+busy = ["ms-teams", "Teams"]
+
+[[rule]]
+id = "app.spotify"
+name = "Spotify cache"
+category = "App caches"
+paths = ["{local}/Spotify/Data/*", "{local}/Packages/SpotifyAB.SpotifyMusic_zpdnekdrzrea0/LocalCache/Spotify/Data/*"]
+risk = "review"
+description = "Deletes streamed songs Spotify kept for faster playback. Downloaded playlists may need to download again."
+regenerates = "Streamed again as you listen."
+method = "trash"
+busy = ["Spotify"]
+
+# ───────────────────────────── Developer ─────────────────────────────
+
+[[rule]]
+id = "dev.android_system_images"
+name = "Android system images"
+category = "Developer"
+paths = ["{android_sdk}/system-images/*"]
+risk = "review"
+description = "Deletes downloaded emulator system images. Emulators that use them stop booting until the image is downloaded again."
+regenerates = "Download again from the Android Studio SDK Manager."
+method = "trash"
+busy = ["studio64", "emulator", "qemu-system-x86_64"]
+
+[[rule]]
+id = "dev.android_avds"
+name = "Android emulators"
+category = "Developer"
+paths = ["{android_avd}/*"]
+risk = "caution"
+description = "Deletes emulator devices with everything installed on them."
+regenerates = "Create them again in the Device Manager; their data is lost."
+method = "trash"
+busy = ["emulator", "qemu-system-x86_64"]
+
+[[rule]]
+id = "dev.gradle_caches"
+name = "Gradle caches"
+category = "Developer"
+paths = ["{gradle_home}/caches/*", "{gradle_home}/wrapper/dists/*"]
+risk = "safe"
+description = "Deletes downloaded dependencies and Gradle versions. The next build downloads what it needs."
+regenerates = "Downloaded again by the next build (needs a network connection)."
+method = "trash"
+busy = ["GradleDaemon", "studio64"]
+
+[[rule]]
+id = "dev.go_cache"
+name = "Go build cache"
+category = "Developer"
+paths = ["{go_cache}/*"]
+risk = "safe"
+description = "Deletes compiled Go packages. The next build compiles them again."
+regenerates = "Rebuilt by `go build`."
+method = "trash"
+busy = ["go"]
+
+[[rule]]
+id = "dev.visual_studio_cache"
+name = "Visual Studio caches"
+category = "Developer"
+paths = ["{local}/Microsoft/VisualStudio/*/ComponentModelCache/*", "{local}/Microsoft/VisualStudio/*/ImageLibrary/*"]
+risk = "safe"
+description = "Deletes Visual Studio's component and image caches. Projects and settings are kept."
+regenerates = "Rebuilt the next time Visual Studio starts."
+method = "trash"
+busy = ["devenv"]
+
+# ───────────────────────────── Package managers ─────────────────────────────
+
+[[rule]]
+id = "pkg.npm"
+name = "npm cache"
+category = "Package managers"
+paths = ["{npm_cache}/_cacache/*"]
+risk = "safe"
+description = "Deletes npm's download cache. Installed projects are not affected."
+regenerates = "Filled again by the next `npm install` (needs a network connection)."
+method = "trash"
+busy = ["npm", "node"]
+
+[[rule]]
+id = "pkg.yarn"
+name = "Yarn cache"
+category = "Package managers"
+paths = ["{yarn_cache}/*"]
+risk = "safe"
+description = "Deletes Yarn's download cache. Installed projects are not affected."
+regenerates = "Filled again by the next `yarn install` (needs a network connection)."
+method = "trash"
+busy = ["yarn", "node"]
+
+[[rule]]
+id = "pkg.pnpm"
+name = "pnpm store"
+category = "Package managers"
+paths = ["{pnpm_store}/*"]
+risk = "review"
+description = "Deletes pnpm's shared package store. Projects installed with pnpm need `pnpm install` again."
+regenerates = "`pnpm install` in each project (needs a network connection)."
+method = "trash"
+busy = ["pnpm", "node"]
+
+[[rule]]
+id = "pkg.pip"
+name = "pip cache"
+category = "Package managers"
+paths = ["{pip_cache}/*"]
+risk = "safe"
+description = "Deletes pip's download and wheel cache. Installed packages are not affected."
+regenerates = "Filled again by the next `pip install` (needs a network connection)."
+method = "trash"
+busy = ["pip", "python"]
+
+[[rule]]
+id = "pkg.nuget"
+name = "NuGet packages"
+category = "Package managers"
+paths = ["{nuget}/*"]
+risk = "review"
+description = "Deletes NuGet's global package folder. The next restore downloads the packages your projects use."
+regenerates = "`dotnet restore` or a build in Visual Studio (needs a network connection)."
+method = "trash"
+busy = ["dotnet", "devenv", "MSBuild"]
+
+[[rule]]
+id = "pkg.cargo"
+name = "Cargo download cache"
+category = "Package managers"
+paths = ["{cargo_home}/registry/cache/*", "{cargo_home}/git/db/*"]
+risk = "safe"
+description = "Deletes downloaded crate archives and git checkouts. Unpacked sources and installed tools are kept."
+regenerates = "Downloaded again by the next `cargo build` that needs them."
+method = "trash"
+busy = ["cargo"]
+
+[[rule]]
+id = "pkg.pub"
+name = "Dart and Flutter packages"
+category = "Package managers"
+paths = ["{pub_cache}/hosted/*", "{pub_cache}/git/*"]
+risk = "review"
+description = "Deletes downloaded Dart and Flutter packages. Each project needs `flutter pub get` again."
+regenerates = "`flutter pub get` or `dart pub get` (needs a network connection)."
+method = "trash"
+busy = ["dart", "flutter"]
+
+# ───────────────────────────── Project build artifacts ─────────────────────────────
+# Found by scanning folders chosen by the user. An artifact folder only counts when a marker file
+# sits next to it, so a random folder named `build` is never matched.
+
+[[rule]]
+id = "artifact.node_modules"
+name = "node_modules"
+category = "Project build artifacts"
+kind = "artifact"
+dir_name = "node_modules"
+markers = ["package.json"]
+risk = "safe"
+description = "Deletes installed dependencies for the project."
+regenerates = "`npm install` / `pnpm install` / `yarn` (needs network unless a cache exists)."
+method = "trash"
+stale_days = 60
+busy = ["node", "npm", "pnpm", "yarn"]
+
+[[rule]]
+id = "artifact.rust_target"
+name = "Rust target/"
+category = "Project build artifacts"
+kind = "artifact"
+dir_name = "target"
+markers = ["Cargo.toml"]
+risk = "safe"
+description = "Deletes compiled output and incremental build state."
+regenerates = "`cargo build` (full rebuild)."
+method = "trash"
+stale_days = 30
+busy = ["cargo", "rustc"]
+
+[[rule]]
+id = "artifact.dart_tool"
+name = ".dart_tool"
+category = "Project build artifacts"
+kind = "artifact"
+dir_name = ".dart_tool"
+markers = ["pubspec.yaml"]
+risk = "safe"
+description = "Deletes Dart tooling state and package config."
+regenerates = "`flutter pub get`."
+method = "trash"
+stale_days = 30
+busy = ["dart", "flutter"]
+
+[[rule]]
+id = "artifact.flutter_build"
+name = "Flutter build/"
+category = "Project build artifacts"
+kind = "artifact"
+dir_name = "build"
+markers = ["pubspec.yaml"]
+risk = "safe"
+description = "Deletes Flutter build output for the project."
+regenerates = "`flutter build` / `flutter run`."
+method = "trash"
+stale_days = 30
+busy = ["dart", "flutter"]
+
+[[rule]]
+id = "artifact.gradle"
+name = ".gradle"
+category = "Project build artifacts"
+kind = "artifact"
+dir_name = ".gradle"
+markers = ["build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts"]
+risk = "safe"
+description = "Deletes the project's Gradle state."
+regenerates = "Recreated by the next Gradle run."
+method = "trash"
+stale_days = 30
+busy = ["GradleDaemon", "studio64"]
+
+[[rule]]
+id = "artifact.gradle_build"
+name = "Gradle build/"
+category = "Project build artifacts"
+kind = "artifact"
+dir_name = "build"
+markers = ["build.gradle", "build.gradle.kts"]
+risk = "safe"
+description = "Deletes compiled output of the Gradle project."
+regenerates = "`./gradlew build`."
+method = "trash"
+stale_days = 30
+busy = ["GradleDaemon", "studio64"]
+
+[[rule]]
+id = "artifact.pycache"
+name = "__pycache__"
+category = "Project build artifacts"
+kind = "artifact"
+dir_name = "__pycache__"
+markers = []
+risk = "safe"
+description = "Deletes Python bytecode caches."
+regenerates = "Written again whenever the modules are imported."
+method = "trash"
+stale_days = 0

@@ -1,0 +1,30 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Deskveet",
+        "width": 960,
+        "height": 640,
+        "minWidth": 900,
+        "minHeight": 600,
+        "center": true,
+        "decorations": true,
+        "backgroundColor": "#1c1b19"
+      }
+    ]
+  },
+  "bundle": {
+    "targets": ["appimage", "deb"],
+    "linux": {
+      "deb": {
+        "depends": ["libayatana-appindicator3-1"],
+        "section": "utils"
+      },
+      "appimage": {
+        "bundleMediaFramework": false
+      }
+    }
+  }
+}
