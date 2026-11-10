@@ -3,7 +3,7 @@ Deskveet shows where your disk space went and cleans what is safe to clean.
 Most full Macs are full of things nobody chose to keep: Xcode build data, old simulators, Gradle, npm and Cargo caches, browser caches, logs and downloads that tools leave behind. Deskveet knows where these live, measures them, and tells you what each one is before anything is touched.
 
 EVERY RULE EXPLAINS ITSELF
-58 built-in rules cover developer tools, package managers, browsers and app caches. Each one says what happens if you delete its items and how they come back, so you can decide with the facts in front of you.
+61 built-in rules cover developer tools, package managers, browsers and app caches. Each one says what happens if you delete its items and how they come back, so you can decide with the facts in front of you.
 
 YOU SEE IT FIRST
 Nothing is cleaned until you have seen the list and confirmed it. Items go to the Trash, so you can put them back, and an undo log keeps track of what moved where. Running browsers, booted simulators and open files are left alone.

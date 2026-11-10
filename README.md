@@ -86,7 +86,7 @@ Deskveet is one app with the same screens on macOS, Windows and Linux. What chan
 ### Mac
 
 - **Runs on** macOS 13 Ventura or later, Apple Silicon and Intel (one universal app, about 7 MB).
-- **Rules:** 58 in [`rules/macos.toml`](rules/macos.toml): Xcode DerivedData, simulators, Homebrew, CocoaPods,
+- **Rules:** 61 in [`rules/macos.toml`](rules/macos.toml): Xcode DerivedData, simulators, Homebrew, CocoaPods, Rust toolchains,
   browser and app caches, logs, and more.
 - **Cleaned items** go to the Trash.
 - **Lives in** the menu bar, with no Dock icon when the window is closed.
@@ -99,7 +99,7 @@ Deskveet is one app with the same screens on macOS, Windows and Linux. What chan
 ### Windows
 
 - **Runs on** Windows 10 (22H2) and Windows 11, x64 and ARM64 (installer about 2 MB).
-- **Rules:** 34 in [`rules/windows.toml`](rules/windows.toml): Temp, crash dumps, Windows error reports, shader
+- **Rules:** 37 in [`rules/windows.toml`](rules/windows.toml): Temp, crash dumps, Windows error reports, shader
   cache, Chrome, Edge, Brave, Firefox, VS Code, Discord, Teams, Gradle, npm, NuGet, Visual Studio, and more.
 - **Cleaned items** go to the Recycle Bin.
 - **Lives in** the system tray, and starts at sign-in if you want it to.

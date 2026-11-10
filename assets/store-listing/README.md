@@ -17,7 +17,7 @@ The Snap Store takes the same summary and description as `desktop/listing.md`.
 | # | File | Mac App Store caption | Everywhere else |
 |---|---|---|---|
 | 1 | `01-storage.png` | See where your space went. | the same |
-| 2 | `02-rules.png` | Every rule says what happens. (58 built-in rules) | the same, without a count |
+| 2 | `02-rules.png` | Every rule says what happens. (61 built-in rules) | the same, without a count |
 | 3 | `03-review.png` | You see it first. It goes to the Trash. | You see it first. Then it's cleaned. |
 | 4 | `04-undo.png` | Changed your mind? Put it back. | the same |
 | 5 | `05-overview.png` | Your Mac at a glance. | Your computer at a glance. |

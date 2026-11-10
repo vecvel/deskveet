@@ -496,6 +496,8 @@ impl Engine {
             (Kind::Dynamic, Some("simctl_runtimes")) => self.sim_runtimes(rule),
             (Kind::Dynamic, Some("trash")) => self.trash_items(rule),
             (Kind::Dynamic, Some("tm_snapshots")) => self.tm_snapshots(rule),
+            (Kind::Dynamic, Some("rustup_toolchains")) => self.rust_toolchains(rule),
+            (Kind::Dynamic, Some("rustup_targets")) => self.rust_targets(rule),
             _ if rule.id == "simulators.unavailable" => self.sim_unavailable(rule),
             _ if rule.method == Method::Tool => Ok(self.tool_items(rule)),
             _ => Ok(self.path_items(rule)),
@@ -675,6 +677,66 @@ impl Engine {
                 let mut it = self.new_item(rule, name, "System update snapshot".into());
                 it.info.push(name.to_string());
                 it.blocked = Some("Managed by macOS: it is removed after the update finishes".into());
+                out.push(it);
+            }
+        }
+        Ok(out)
+    }
+
+    /// Where rustup keeps toolchains (`$RUSTUP_HOME`, else `~/.rustup`).
+    fn rustup_home(&self) -> Option<PathBuf> {
+        self.locations().get("rustup_home").and_then(|r| r.path.clone())
+    }
+
+    /// `rustup toolchain list`: (name, is the default or the active one).
+    fn rust_toolchain_list(&self) -> Result<Vec<(String, bool)>, String> {
+        let out = self.sys.capture(&sv(["rustup", "toolchain", "list"]))?;
+        Ok(out
+            .lines()
+            .filter_map(|l| {
+                let name = l.split_whitespace().next()?;
+                valid_id(name).then(|| (name.to_string(), l.contains("(default)") || l.contains("(active)") || l.contains("(override)")))
+            })
+            .collect())
+    }
+
+    /// One item per installed toolchain except the default, measured on disk.
+    fn rust_toolchains(&self, rule: &Rule) -> Result<Vec<Item>, String> {
+        let home = self.rustup_home().ok_or("rustup's folder was not found")?;
+        let mut out = Vec::new();
+        for (name, default) in self.rust_toolchain_list()? {
+            let dir = home.join("toolchains").join(&name);
+            let mut it = self.new_item(rule, &name, name.clone());
+            let me = fsutil::measure(&dir);
+            (it.size, it.files, it.mtime) = (me.bytes, me.files, me.mtime);
+            it.path = Some(dir.to_string_lossy().into_owned());
+            it.extra = Some(name.clone());
+            if default {
+                it.blocked = Some("Your default toolchain".into());
+            }
+            out.push(it);
+        }
+        Ok(out)
+    }
+
+    /// One item per extra target of each toolchain (`rustup target list --installed`), never this computer's own.
+    fn rust_targets(&self, rule: &Rule) -> Result<Vec<Item>, String> {
+        let home = self.rustup_home().ok_or("rustup's folder was not found")?;
+        let host = self.sys.capture(&sv(["rustup", "show"])).ok().and_then(|o| o.lines().find_map(|l| l.strip_prefix("Default host:").map(|h| h.trim().to_string())));
+        let mut out = Vec::new();
+        for (tc, _) in self.rust_toolchain_list()? {
+            let Ok(list) = self.sys.capture(&sv(["rustup", "target", "list", "--installed", "--toolchain", &tc])) else { continue };
+            for target in list.lines().map(str::trim).filter(|t| valid_id(t)) {
+                // the toolchain's own target is part of it, and so is the computer's
+                if host.as_deref() == Some(target) || tc.ends_with(target) {
+                    continue;
+                }
+                let dir = home.join("toolchains").join(&tc).join("lib/rustlib").join(target);
+                let mut it = self.new_item(rule, &format!("{tc}|{target}"), format!("{target} for {tc}"));
+                let me = fsutil::measure(&dir);
+                (it.size, it.files, it.mtime) = (me.bytes, me.files, me.mtime);
+                it.path = Some(dir.to_string_lossy().into_owned());
+                it.extra = Some(format!("{tc}|{target}"));
                 out.push(it);
             }
         }
@@ -978,6 +1040,9 @@ impl Engine {
                 "<udid>" => extra.as_deref().filter(|s| valid_udid(s)).map(str::to_string).ok_or_else(|| "invalid device id".to_string()),
                 "<id>" => extra.as_deref().filter(|s| valid_id(s)).map(str::to_string).ok_or_else(|| "invalid runtime id".to_string()),
                 "<date>" => extra.as_deref().filter(|s| valid_snapshot_date(s)).map(str::to_string).ok_or_else(|| "invalid snapshot date".to_string()),
+                // rustup items carry `toolchain` or `toolchain|target`
+                "<toolchain>" => extra.as_deref().and_then(|e| e.split('|').next()).filter(|s| valid_id(s)).map(str::to_string).ok_or_else(|| "invalid toolchain".to_string()),
+                "<target>" => extra.as_deref().and_then(|e| e.split('|').nth(1)).filter(|s| valid_id(s)).map(str::to_string).ok_or_else(|| "invalid target".to_string()),
                 s => Ok(s.to_string()),
             })
             .collect()
@@ -1997,6 +2062,33 @@ mod tests {
         assert!(f.home.join(".Trash").is_dir(), "the Trash folder itself stays");
         assert!(f.home.join("Documents/keep.txt").exists());
         assert_eq!(f.eng.trash_size(), 0);
+    }
+
+    #[cfg_attr(not(target_os = "macos"), ignore = "macOS paths and rules; other systems are tested separately")]
+    #[test]
+    fn rust_toolchains_and_extra_targets_are_offered_but_never_the_default_or_this_computers_own() {
+        let f = fx();
+        let tcs = f.home.join(".rustup/toolchains");
+        put(&tcs.join("stable-aarch64-apple-darwin/lib/librustc.dylib"), 300_000);
+        put(&tcs.join("stable-aarch64-apple-darwin/lib/rustlib/x86_64-pc-windows-msvc/lib/libstd.rlib"), 120_000);
+        put(&tcs.join("nightly-2026-01-01-aarch64-apple-darwin/lib/librustc.dylib"), 400_000);
+        {
+            let mut c = f.sys.captures.lock().unwrap();
+            c.insert("rustup toolchain list".into(), "stable-aarch64-apple-darwin (default)\nnightly-2026-01-01-aarch64-apple-darwin\n".into());
+            c.insert("rustup show".into(), "Default host: aarch64-apple-darwin\nrustup home:  /x\n".into());
+            c.insert("rustup target list --installed --toolchain stable-aarch64-apple-darwin".into(), "aarch64-apple-darwin\nx86_64-pc-windows-msvc\n".into());
+            c.insert("rustup target list --installed --toolchain nightly-2026-01-01-aarch64-apple-darwin".into(), "aarch64-apple-darwin\n".into());
+        }
+        let tc = scan(&f, "rust.toolchains");
+        let offered: Vec<_> = tc.items.iter().filter(|i| i.blocked.is_none()).map(|i| i.label.as_str()).collect();
+        assert_eq!(offered, ["nightly-2026-01-01-aarch64-apple-darwin"], "the default toolchain stays");
+        assert!(tc.items.iter().any(|i| i.blocked.as_deref() == Some("Your default toolchain")));
+        let tg = scan(&f, "rust.targets");
+        assert_eq!(tg.items.iter().map(|i| i.label.as_str()).collect::<Vec<_>>(), ["x86_64-pc-windows-msvc for stable-aarch64-apple-darwin"]);
+        assert!(tg.items[0].size >= 120_000);
+        let rule = f.eng.registry().get("rust.targets").unwrap().clone();
+        assert_eq!(Engine::build_argv(&rule, &tg.items[0].extra).unwrap(), ["rustup", "target", "remove", "--toolchain", "stable-aarch64-apple-darwin", "x86_64-pc-windows-msvc"]);
+        assert!(Engine::build_argv(&rule, &Some("stable;rm -rf /|x".into())).is_err(), "nothing but plain names reaches rustup");
     }
 
     #[test]

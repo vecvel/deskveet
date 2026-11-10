@@ -89,7 +89,7 @@ pub struct Registry {
     pub rules: Vec<Rule>,
 }
 
-const DYNAMIC_KINDS: &[&str] = &["simctl_devices", "simctl_runtimes", "trash", "tm_snapshots"];
+const DYNAMIC_KINDS: &[&str] = &["simctl_devices", "simctl_runtimes", "trash", "tm_snapshots", "rustup_toolchains", "rustup_targets"];
 
 /// An absolute path in a rules file: `/...` on Unix, or a drive like `C:/...` for Windows rules.
 fn is_absolute(p: &str) -> bool {
@@ -193,7 +193,7 @@ impl Registry {
             }
             if let Some(t) = &r.tool {
                 for a in t {
-                    if a.contains('<') && !matches!(a.as_str(), "<udid>" | "<id>" | "<date>") {
+                    if a.contains('<') && !matches!(a.as_str(), "<udid>" | "<id>" | "<date>" | "<toolchain>" | "<target>") {
                         return bad("unknown tool placeholder");
                     }
                 }

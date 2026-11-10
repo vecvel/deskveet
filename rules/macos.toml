@@ -32,7 +32,19 @@
 # Any candidate that is missing, or is home, a protected folder or a system path, is ignored.
 
 schema_version = 1
-rules_version = "1.0.0"
+rules_version = "1.0.1"
+
+[[location]]
+id = "rustup_home"
+name = "rustup"
+env = ["RUSTUP_HOME"]
+default = "~/.rustup"
+
+[[location]]
+id = "sccache_dir"
+name = "sccache"
+env = ["SCCACHE_DIR"]
+default = "~/Library/Caches/Mozilla.sccache"
 
 [[location]]
 id = "derived_data"
@@ -156,6 +168,47 @@ env = ["XDG_CACHE_HOME"]
 default = "~/.cache"
 
 # ───────────────────────────── Developer: Xcode ─────────────────────────────
+
+[[rule]]
+id = "rust.toolchains"
+name = "Old Rust toolchains"
+category = "Developer"
+kind = "dynamic"
+dynamic = "rustup_toolchains"
+paths = ["{rustup_home}/toolchains/*"]
+detect = "command -v rustup"
+risk = "review"
+description = "Removes a Rust toolchain (an older stable, a nightly) with `rustup toolchain uninstall`. Your default toolchain is never offered."
+regenerates = "`rustup toolchain install <name>` downloads it again."
+method = "tool"
+tool = ["rustup", "toolchain", "uninstall", "<toolchain>"]
+busy = ["cargo", "rustc", "rust-analyzer"]
+
+[[rule]]
+id = "rust.targets"
+name = "Extra Rust targets"
+category = "Developer"
+kind = "dynamic"
+dynamic = "rustup_targets"
+paths = ["{rustup_home}/toolchains/*/lib/rustlib/*"]
+detect = "command -v rustup"
+risk = "review"
+description = "Removes a cross-compilation target added with `rustup target add` (the standard library built for another system). Building for that system stops working until it is added again. The target of this computer is never offered."
+regenerates = "`rustup target add <target>` downloads it again."
+method = "tool"
+tool = ["rustup", "target", "remove", "--toolchain", "<toolchain>", "<target>"]
+busy = ["cargo", "rustc", "rust-analyzer"]
+
+[[rule]]
+id = "rust.sccache"
+name = "sccache cache"
+category = "Developer"
+paths = ["{sccache_dir}/*"]
+risk = "safe"
+description = "Deletes sccache's shared compilation cache. Builds are slower until it fills again."
+regenerates = "Filled again by the next builds that use sccache."
+method = "trash"
+busy = ["sccache"]
 
 [[rule]]
 id = "xcode.derived_data"
@@ -393,12 +446,12 @@ busy = ["yarn"]
 
 [[rule]]
 id = "rust.cargo_registry"
-name = "Cargo registry cache"
+name = "Cargo download cache"
 category = "Package managers"
-paths = ["{cargo_home}/registry/cache/*", "{cargo_home}/registry/src/*", "{cargo_home}/git/checkouts/*", "{cargo_home}/git/db/*"]
-risk = "review"
-description = "Deletes downloaded crate archives and unpacked sources. Cargo downloads them again on the next build, which needs network access (cargo --offline will fail for uncached crates)."
-regenerates = "Re-downloaded by cargo."
+paths = ["{cargo_home}/registry/cache/*", "{cargo_home}/git/db/*"]
+risk = "safe"
+description = "Deletes downloaded crate archives and git checkouts. Unpacked sources and installed tools are kept."
+regenerates = "Downloaded again by the next `cargo build` that needs them."
 method = "trash"
 busy = ["cargo", "rustc", "rust-analyzer"]
 
